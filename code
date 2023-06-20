@@ -1,0 +1,3722 @@
+#ifndef     _UART_H
+#define	 	_UART_H
+#include <H:\TESE-433-V0\MYmsp430.h>
+
+#define UART_CMD_1 'a'
+#define UART_CMD_2 'b'
+
+
+
+
+
+
+
+
+#define dubug_ENABLE   1
+#if dubug_ENABLE
+  #define mypr_sent(x)   UCA0_SendString(x);
+  #define mypr_puts(x,y)   Putsf(x,y)
+#else
+   #define mypr_sent(x)  
+  #define mypr_puts(x,y)  
+#endif
+
+#define PRINTF_ENABLE   1
+#if PRINTF_ENABLE
+#define RS232_sent(x)   UCA0_SendString(x)
+#define Printf(x)
+//#define Printf(x) UCA0_SendString(x)
+#else
+#define Printf(x)
+#endif
+//extern U8 UART_REC;
+//extern U8 UART_REC_flag;
+//extern U8  RX_data[7];
+
+
+
+
+
+void UCA0_Init();
+void UCA0_ReceData();
+void UCA0_SendData(U8);//发送1个数据
+void UCA0_SendString(U8 *); //发送字符串
+void Printf_Integer(U16 x);
+void Puts(U16 x,U8 *s);
+void Putsf(U8 *s,U16 x);
+void TX_SENT(U8 *s,U16 x);
+#endif
+/*************************************
+  End Of File
+*************************************/
+
+/****************Copyright (c)**************************
+** File name:               UART.c
+** Last modified Date:      
+** Last Version:        
+** Descriptions:       
+********************************************************/
+
+//头文件
+#include <msp430g2553.h>
+#include <H:\TESE-433-V0\MYmsp430.h>
+#include "UART.h"
+#include "BQ24195.h"
+#include "global.h"
+
+
+
+
+
+
+	U8 receivedata[7];// =0;
+//	U8 RX_data[7];// =0;
+	U8 TX_Send[7];////={0x11,0x22,0x33,0x44,0x55,0x66,0x77,0x88,0x99,0xaa};
+	U8	TXcount=0;
+	U8	RXcount=0;
+	U8	RX_eexount=0;
+	U8	RX_eetime=0;
+    U8  RX_ok_f;
+//volatile   bit  TX_ok_f;
+#define   TXcount_max   16
+#define   RXcount_max   5
+
+
+
+#if PRINTF_ENABLE
+static const U8 * const VAL = "0123456789";
+#endif
+U8 UART_REC = ' ';
+U8 UART_REC_flag=0;
+/***********串口初始化***********/
+void UCA0_Init(){
+#if PRINTF_ENABLE
+  P1DIR &= ~BIT1;
+  P1DIR &= ~BIT2;
+  P1SEL |= BIT1+BIT2;
+  P1SEL2 |= BIT1+BIT2;
+  
+  UCA0CTL1 |= UCSWRST;
+  UCA0CTL0 &= ~UC7BIT;   //8位数据位
+  UCA0CTL1 |= UCSSEL_2;  //USCI时钟源=SMCLK
+  UCA0BR0 = 104; //波特率9600
+  UCA0BR1 = 0;  
+  UCA0MCTL = UCBRS0;
+  UCA0CTL1 &= ~UCSWRST;
+ // IE2 |= UCA0RXIE;  //使能接收中断。
+   IE2 &=~ UCA0RXIE;  //关闭接收中断。
+   IE2 &=~ UCB0RXIE;  //关闭接收中断。
+#else 
+  P1DIR |= BIT1;
+  P1DIR |= BIT2;
+  P1OUT &= (~BIT1);
+  P1OUT &= (~BIT2);
+#endif
+}
+/***********发送一个数据***********/
+void UCA0_SendData(U8 dat)
+{
+#if PRINTF_ENABLE
+    UCA0TXBUF = dat;
+    while((IFG2&UCA0TXIFG)==0){CLRWDT();} //查询发送是否结束
+    IFG2 &= ~UCA0TXIFG;
+#endif
+}
+
+/***********发送字符串***********/
+void UCA0_SendString(U8 *s)
+{
+#if PRINTF_ENABLE
+  while(*s)
+  {
+    UCA0TXBUF = *(s++);
+    while((IFG2&UCA0TXIFG)==0){CLRWDT();} //查询发送是否结束
+    IFG2 &= ~UCA0TXIFG;
+  }
+#endif
+}
+
+/***********接收字符串***********/
+void UCA0_ReceData(){
+#if PRINTF_ENABLE
+	if(UART_REC_flag==1){
+		UART_REC_flag=0;
+		
+		//mypr_sent("uart RX:");
+		UCA0_SendData(UART_REC);
+		UCA0_SendData('\n');
+		
+		switch(UART_REC){
+			case UART_CMD_1:
+				//Printf("UART_CMD_1 finish!\n");
+				break;
+			case UART_CMD_2:
+				break;
+			default:
+				break;
+		}
+	}
+#endif
+}
+void Printf_Integer(U16 x){  //只考虑9999以为的整数打印
+#if PRINTF_ENABLE
+	U8 qian,bai,shi,ge;
+	qian=(U8)(x/1000);
+	bai=(U8)((x%1000)/100);
+	shi=(U8)((x%100)/10);
+	ge=(U8)(x%10);
+	UCA0_SendData('\n');
+	UCA0_SendData(*(VAL+qian));
+	UCA0_SendData(*(VAL+bai));
+	UCA0_SendData(*(VAL+shi));
+	UCA0_SendData(*(VAL+ge));
+	UCA0_SendData('\n');
+#else 
+	x=x;
+#endif
+	return;
+}
+
+
+/// // Printf_Integer(temp/64*35/100);
+///	Puts(temp*35/64,"V");
+void Puts(U16 x,U8 *s)
+{ 
+#if PRINTF_ENABLE
+		U8 qian,bai,shi,ge;
+	qian=(U8)(x/1000);
+	bai=(U8)((x%1000)/100);
+	shi=(U8)((x%100)/10);
+	ge=(U8)(x%10);
+	UCA0_SendData('\n');
+	UCA0_SendData(*(VAL+qian));
+	UCA0_SendData(*(VAL+bai));
+	UCA0_SendData(*(VAL+shi));
+	UCA0_SendData(*(VAL+ge));
+	//UCA0_SendData(' ');
+        UCA0_SendString(s);
+		UCA0_SendData('\n');
+#else 
+	x=x;
+#endif
+	return;
+}
+
+
+
+
+
+///	TX_SENT("V",temp*35/6,);
+void TX_SENT(U8 *s,U16 x)
+{ 
+#if PRINTF_ENABLE
+		U8 qian,bai,shi,ge;
+	qian=(U8)(x/1000);
+	bai=(U8)((x%1000)/100);
+	shi=(U8)((x%100)/10);
+	ge=(U8)(x%10);
+	UCA0_SendData('\n');
+	UCA0_SendString(s);
+	UCA0_SendData(*(VAL+qian));
+	UCA0_SendData(*(VAL+bai));
+	UCA0_SendData(*(VAL+shi));
+	UCA0_SendData(*(VAL+ge));
+	//UCA0_SendData(' ');        
+		UCA0_SendData('\n');
+#else 
+	x=x;
+#endif
+	return;
+}
+
+
+
+
+///	Putsf("V",temp*35/64);
+void Putsf(U8 *s,U16 x)
+{ 
+#if PRINTF_ENABLE
+		U8 qian,bai,shi,ge;
+	qian=(U8)(x/1000);
+	bai=(U8)((x%1000)/100);
+	shi=(U8)((x%100)/10);
+	ge=(U8)(x%10);
+	UCA0_SendData('\n');
+	 UCA0_SendString(s);
+	UCA0_SendData(*(VAL+qian));
+	UCA0_SendData(*(VAL+bai));
+	UCA0_SendData(*(VAL+shi));
+	UCA0_SendData(*(VAL+ge));
+	//UCA0_SendData(' ');       
+	//	UCA0_SendData('\n');
+#else 
+	x=x;
+#endif
+	return;
+}
+
+
+
+
+#define   RX_ROTMA    0X24 //0X24为接收$号
+//#define   RX_ROTMA    0X3E ////>号
+/**************串口0接收中断函数 **************/
+#if PRINTF_ENABLE
+#pragma vector=USCIAB0RX_VECTOR
+__interrupt void USCI0RX_ISR(void)
+{U8 temp8W;
+	//while(!(IFG2 & UCA0RXIFG)){CLRWDT();}//屏蔽接收功能
+	//UART_REC=UCA0RXBUF;
+	//UART_REC_flag=1;	
+	 if (RX_ok_f==1) {temp8W=UCA0RXBUF; goto rx_int_outL;}//未处理上次接收数据
+     receivedata[RXcount] =UCA0RXBUF; // 0X24为接收$号	  
+     RX_eetime=2;//100mS为单元200mS内没接收完。清0
+	if ((receivedata[RXcount])==RX_ROTMA) {RX_eexount++;  if (RX_eexount>=RXcount_max) {RXcount=0;RX_eexount=0;}
+	                                       }   //强逼头码重置。
+	    RXcount++;
+		if(RXcount>=RXcount_max) {RXcount=0;
+							       if (receivedata[0]==RX_ROTMA) //头码对应。数据选取.////if ((receivedata[0]==0XAA) && (receivedata[1]==0X10) )
+										{RX_eexount=0;//数据相等。不强制头码重新置位。
+										 temp8W=receivedata[0];
+										 temp8W+=receivedata[1];
+										 temp8W+=receivedata[2];
+										 temp8W+=receivedata[3];	
+										 if (temp8W==receivedata[4])
+										 	{//检验成功。对码成功
+										     //RX_data[0]=receivedata[0];//符号
+										     //RX_data[1]=receivedata[1];//ID1
+										     //RX_data[2]=receivedata[2];//ID2
+										     //RX_data[3]=receivedata[3];//功能
+										     //RX_data[4]=receivedata[4];//检验和										     
+											 if ((receivedata[1]== TX_Send[1]) && (TX_Send[2]==receivedata[2])) //地址检验ID
+											             {my_state_rd=receivedata[3];}//接收回来的数据状态 
+											 RS232_OFFTIM=0;//            
+										     RX_ok_f=1; //接收成功。检验成功
+                                             receivedata[0]=0; receivedata[1]=0; receivedata[2]=0; receivedata[3]=0;
+										 	}										 
+									    }								
+								   }  	
+	//UART_REC_flag=1;	
+	rx_int_outL:;
+}
+#endif 
+/*************************************
+  End Of File
+*************************************/
+
+/*
+receivedata[RXcount] =SBUF; 	 
+	if ((receivedata[RXcount])==0XAA)  {RX_eexount++;  if (RX_eexount>20) {RXcount=0;RX_eexount=0;}   //强逼头码重置。				 
+									   } 
+	if(++RXcount>=RXcount_max) {RXcount=0;RX_ok_f=1; 
+								if ((receivedata[0]==0XAA) && (receivedata[1]==0X10) )
+									{RX_eexount=0;//数据相等。不强制头码重新置位。
+									 RX_data[0]=receivedata[0];
+									 RX_data[1]=receivedata[1];
+									 RX_data[2]=receivedata[2];
+									 RX_data[3]=receivedata[3];
+									 RX_data[4]=receivedata[4];
+									 RX_data[5]=receivedata[5];
+									 RX_data[6]=receivedata[6];
+								 }								
+							   }  
+
+*/
+
+
+
+
+
+
+
+
+
+
+
+
+#ifndef     	_IIC_H
+#define	 	_IIC_H
+void I2C_Init();
+void I2C_Write(unsigned char,unsigned char);  //IIC向固定地址写数据
+unsigned char  I2C_Read(unsigned char);//IIC向固定地址读数据
+
+#endif
+/*************************************
+  End Of File
+*************************************/
+
+
+/****************Copyright (c)**************************
+** File name:               IIC.c
+** Last modified Date:     
+** Last Version:        
+** Descriptions:       
+********************************************************/
+//头文件
+#include <msp430g2553.h>
+#include <H:\TESE-433-V0\MYmsp430.h>
+#include "IIC.h"
+#include "global.h"
+
+void I2C_Init(){
+  //IIC初始化
+  UCB0CTL1 |= UCSWRST;                      // Enable SW reset
+  P1SEL |= (BIT6 + BIT7);                   // P1.6 = SCL, P1.7=SDA
+  P1SEL2 |= (BIT6 + BIT7); 
+  
+  UCB0CTL0 = UCMST + UCMODE_3 + UCSYNC;  //主模式+IIC模式+同步模式
+  UCB0CTL1 |= UCSSEL_2 + UCSWRST;        //SMCLK+复位
+  
+  UCB0BR0 = 10;                             // fSCL = SMCLK/10 = 100kHz
+  UCB0BR1 = 0;
+  UCB0I2CSA = 0x6B;                         // Set slave address
+  UCB0CTL1 &= ~UCSWRST;                     // Clear SW reset, resume operation
+  
+}
+/**********IIC写数据**********/
+void  I2C_Write(unsigned char Addr,unsigned char dat)
+{
+	CLRWDT();//喂狗
+   UCB0CTL1 |= UCTR;      //发送模式
+   UCB0CTL1 |= UCTXSTT;   //Start
+   
+   while((IFG2 & UCB0TXIFG) != UCB0TXIFG);//{CLRWDT();} //等待起始条件产生   UCB0TXIFG = 1
+   CLRWDT();//喂狗
+   UCB0TXBUF = Addr;
+   IFG2 &= ~UCB0TXIFG;//清零
+   CLRWDT();//喂狗
+   while((UCB0CTL1 & UCTXSTT) ==  UCTXSTT);//{CLRWDT();} //等待从机对地址作出相应  UCTXSTT = 0
+   CLRWDT();//喂狗
+   while((IFG2 & UCB0TXIFG) != UCB0TXIFG);//{CLRWDT();} //等待数据转移到移位寄存器  UCB0TXIFG =1 
+   IFG2 &= ~UCB0TXIFG;//清零
+   
+   UCB0TXBUF = dat;
+   CLRWDT();//喂狗
+   while((IFG2 & UCB0TXIFG) != UCB0TXIFG);//{CLRWDT();} //等待数据转移到移位寄存器  UCB0TXIFG =1
+   UCB0CTL1 |= UCTXSTP ;       //Stop
+   CLRWDT();//喂狗
+  while((UCB0CTL1 & UCTXSTP) ==  UCTXSTP);//{CLRWDT();} //等待通讯结束   UCTXSTP = 0
+   CLRWDT();//喂狗
+}
+
+/**********IIC读数据**********/
+unsigned char  I2C_Read(unsigned char Addr)
+{
+   //CLRWDT();//喂狗
+   unsigned char dat = 0;
+   UCB0CTL1 |= UCTR;      //发送模式
+   UCB0CTL1 |= UCTXSTT;   //Start
+   CLRWDT();//喂狗
+   while((IFG2 & UCB0TXIFG) != UCB0TXIFG);//{CLRWDT();} //等待起始条件产生   UCB0TXIFG = 1
+   UCB0TXBUF = Addr; //写数据
+   IFG2 &= ~UCB0TXIFG;//清零 
+   CLRWDT();//喂狗
+   while((UCB0CTL1 & UCTXSTT) ==  UCTXSTT);//{CLRWDT();} //等待从机对地址作出相应  UCTXSTT = 0
+   CLRWDT();//喂狗
+   while((IFG2 & UCB0TXIFG) != UCB0TXIFG);//{CLRWDT();} //等待数据转移到移位寄存器  UCB0TXIFG =1 
+   CLRWDT();//喂狗
+   IFG2 &= ~UCB0TXIFG;//清零
+   
+   UCB0CTL1 &= ~UCTR;      //接收模式
+   UCB0CTL1 |= UCTXSTT;   //Start
+   
+   while((UCB0CTL1 & UCTXSTT) ==  UCTXSTT);//{CLRWDT();} //等待从机对地址作出相应   UCTXSTT = 0 
+   CLRWDT();//喂狗
+   UCB0CTL1 |= UCTXSTP ;       //Stop      只接收一个字节，接收数据过程中，置位停止位
+   while((IFG2 & UCB0RXIFG) != UCB0RXIFG);//{CLRWDT();} //等待数据接收标志  UCB0RXIFG = 1 
+   CLRWDT();  //CLRWDT();//喂狗
+   dat = UCB0RXBUF;  //读数据
+   CLRWDT();//CLRWDT();//喂狗
+   while((UCB0CTL1 & UCTXSTP) ==  UCTXSTP);//{CLRWDT();} //等待通讯结束   UCTXSTP = 0
+   CLRWDT();//喂狗
+   return dat; //返回数据
+}
+
+/*************************************
+  End Of File
+*************************************/
+
+
+
+#ifndef     	_ADC_H
+#define	 	_ADC_H
+
+
+
+#define  INCH_BAT          0  //通道0
+#define  INCH_LOAD         3  //通道3
+#define  INCH_VBUS         4
+#define  INCH_NTC          5  //通道5
+
+
+#define   Charge_Vol_4V40   0XE0
+#define   Charge_Vol_4V34   0XD0
+#define   Charge_Vol_4V30   0XC8
+#define   Charge_Vol_4V27   0XC0
+#define   Charge_Vol_4V256  0XBC
+#define   Charge_Vol_4V24   0XB8
+#define   Charge_Vol_4V20   0XB0
+#define   Charge_Vol_4V18   0XA8
+#define   Charge_Vol_4V16   0XA4
+#define   Charge_Vol_4V15   0XA0
+
+
+
+
+
+//真实数据为620mA对应AD:278
+//56mV对应AD:26
+#define  LOAD_MID  510
+#define LOAD_OVER_KUAISU  1020//750  20181122
+#define LOAD_OVER  1014// 664  //664->1.5A ,用((负载ADC/1024)*2.8)/11/0.11=负载电流算的
+#define LOAD_LOST  4//4//3//2//7     //7->0.016V->10mA
+#define LOAD_ADAPTER_OVER 500//    330// 330//750mA       //177 //177->400Ma,用负载ADC/11/0.11=负载电流算的,当有接适配器的时候负载电流不能大400.
+#define LOAD_ADAPTER_OVER_IN5V 260// 177 //177->400Ma,用负载ADC/11/0.11=负载电流算的,当有接适配器的时候负载电流不能大400.
+#define LOAD_LOST_3481OFF    94// 65//150mA 高清液晶在此最低负载电流为60mA.      15 //15 恢复开启值。当负载在小于此值时候。重新尝试开启输出
+#define LOAD_ADAPTER_OVER_TIMSET   30//30S  超出LOAD_ADAPTER_OVER=750mA时候关闭时间。时间到重新开启输出.
+
+//=====================充电电压点定义=================================================================================================================
+//电压检测为上拉5K1-下拉热敏电阻分压取样。 AD为电源电压2.8V和地。所以。公式为AD数值=1024*Rt/(5.1+Rt). 即AD=1024*Rt/(5.1+Rt) 
+//(1024*Rt/(5.1+Rt) )
+#define NTC_MAX  300//338  //65℃
+#define NTC_MIN  974//962  //-23℃
+#define NTC_NON  1000 //相当于没有接热敏电阻  
+//=====================充电电压点定义=================================================================================================================
+//电压检测为上拉100K-下拉10K分压取样。 AD为电源电压2.8V和地。所以。公式为AD数值=VOL/11/2.8*1024. 即AD=VOL*2560/77  比如8V     AD=800*128/385
+#define VBUS_LIMIT_1V0    (100*13/39) 
+#define VBUS_LIMIT_MIN    (500*13/39) 
+#define VBUS_5V20    (520*13/39) 
+#define VBUS_LIMIT_HZ55    (550*13/39) 
+
+#define VBUS_LIMIT        (800*13/39) // 266 // (801*128/385) //266 //8v以下用1A，8V以上用3A
+#define VBUS_LIMIT_MAX    (1800*13/39) //598 //  (1800*128/385) //598 //超过y.=598.44->18v(y=(x/11)*1024/2.8)要做过压指示//(y.=398.96->12v，实验测试中使用12v电压测试功能;350->10.5v)
+			   //充电电压在开启充电后会有所下降，已知压降来源于其挂载的电池上
+			   
+//**************************************************************************************************************************************************
+//**************************************************************************************************************			   
+//=====================电池电压点定义=================================================================================================================
+//电压检测为10K-10K分压取样。 AD为电源电压2.8V和地。所以。公式为AD数值=VOL/2/2.8*1024. 即AD=VOL*1280/7  比如3.8V     AD=380*64/35
+/*
+#define bat_off_low     (310*64/35) //548    //低电压关机。电压以下为过放
+#define bat_margin_low  (305*64/35) //548    //电压3.0以下为过放
+#define bat_margin_0    (330*64/35) // 604//3.36V,676->(3.3)	//电压3.0-3.3为0-25余量，亮1颗灯,且灯在闪
+#define bat_margin_25   (348*64/35) //634//3.48V,706->(3.45)	//电压3.3-3.45为25-50余量，亮1颗灯
+#define bat_margin_50   (361*64/35) // 659//3.6V,737->(3.6)	//电压3.45-3.6为50-75余量，亮2颗灯
+#define bat_margin_75   (396*64/35) //713//(3.9)	//电压3.6-3.9为75-100余量，亮3颗灯
+#define bat_margin_100  (418*64/35) //764//(4.18)	//电压3.9-4.2为满余量，但还可以继续充电，亮4颗灯4.2V/2/2.8*1024=768=y.(4.24V~775)
+#define bat_margin_over (430*64/35) //785//(4.3)  //过充要停止充电。4.3/2/2.8*1024=786.28=y.
+*/
+/*
+#define bat_off_low      600//(310*64/35) //548    //低电压关机。电压以下为过放
+#define bat_margin_low   621//(305*64/35) //548    //电压3.0以下为过放
+#define bat_margin_0     667//(330*64/35) // 604//3.36V,676->(3.3)	//电压3.0-3.3为0-25余量，亮1颗灯,且灯在闪
+#define bat_margin_25    685//(348*64/35) //634//3.48V,706->(3.45)	//电压3.3-3.45为25-50余量，亮1颗灯
+#define bat_margin_50    693//(361*64/35) // 659//3.6V,737->(3.6)	//电压3.45-3.6为50-75余量，亮2颗灯
+#define bat_margin_75    718//(396*64/35) //713//(3.9)	//电压3.6-3.9为75-100余量，亮3颗灯
+#define bat_margin_100   758//(415*64/35) //764//(4.15)	//电压3.9-4.2为满余量，但还可以继续充电，亮4颗灯4.2V/2/2.8*1024=768=y.(4.24V~775)
+#define bat_margin_over  770//(422*64/35) //785//(4.22)  //过充要停止充电。4.3/2/2.8*1024=786.28=y.
+*/
+
+#define bat_CHARGE_CA    20// (017*64/35)  充电的时候电压上浮0.17V
+#define bat_low_2V5      450
+#define bat_low_2V6      475
+#define bat_low_2V7      493
+#define bat_low_2V9      530
+#define bat_low_3V0      548
+#define bat_low_3V4      621
+
+#define bat_low_4V1      750
+#define bat_low_4V15      758
+#define bat_low_4V20      759
+
+#define bat_low_4V28      782
+
+
+#define bat_off_low      540//(310*64/35) //548    //低电压关机。电压以下为过放
+#define bat_margin_low   550//(305*64/35) //548    //电压3.0以下为过放   公式为AD数值=VOL/2/2.8*1024. 即AD=VOL*1280/7  比如3.8V     AD=380*64/35
+#define bat_margin_0     603//(330*64/35) // 604//3.36V,676->(3.3)	//电压3.0-3.3为0-25余量，亮1颗灯,且灯在闪
+#define bat_margin_25   640// 685//(350*64/35) //634//3.48V,706->(3.45)	//电压3.3-3.50为25-50余量，亮1颗灯
+#define bat_margin_50   672// 693//(361*64/35) // 659//3.6V,737->(3.6)	//电压3.50-3.68为50-75余量，亮2颗灯
+#define bat_margin_75    715//(390*64/35) //713//(3.9)	//电压3.68-3.9为75-100余量，亮3颗灯
+#define bat_margin_100   758//(415*64/35) //764//(4.15)	//电压3.9-4.2为满余量，但还可以继续充电，亮4颗灯4.2V/2/2.8*1024=768=y.(4.24V~775)
+#define bat_margin_over  770//(422*64/35) //785//(4.22)  //过充要停止充电。4.3/2/2.8*1024=786.28=y.
+////真正AD数据比测试数据算值高11个值.   真AD=600.算值AD为612
+//======================================================================================================================================
+//测试发现，4.2V后基本充电电流很少充得很慢，3.3V继续放电，放电速度很快.
+////#define bat_margin_low  (305*64/35) //548    //电压3.0以下为过放
+
+
+
+
+
+
+
+void ADC_Init();
+unsigned int Acquire_Filter_Result(unsigned char);//获取一级滤波采样值
+unsigned int filter_again(unsigned char);//获取二级滤波采样值
+unsigned int filter_BAT_voltage();
+unsigned int get_battery_ADC();  
+unsigned int get_temperature_ADC();  
+unsigned int get_load_ADC();
+unsigned int get_VBUS_ADC();
+
+
+unsigned int Acquire_ADC_Result(unsigned char INCH);
+
+
+extern  unsigned int BAT_LOADOFFSET;                //电压检测校准量
+extern  unsigned int load_ADC_a ;                //负载检测，保存上一次负载数据，初始化时为0
+extern  unsigned int load_ADC_b ;                //负载检测，保存上一次负载数据，初始化时为0
+extern  unsigned int load_N;                    //负载检测计数
+extern  unsigned int load_at;    
+
+
+
+extern  unsigned int     load_IAD ; 
+extern  U8  LOAD_ADAPTER_OVER_TIM;
+
+extern void LOAD_OVER_action();//负载/短路保护
+extern unsigned int PC_N;       //程序循环计数(用于充电电压跟踪)
+#endif
+/*************************************
+  End Of File
+*************************************/
+
+
+
+
+#ifndef __GLOBAL_H__
+#define __GLOBAL_H__
+#include <msp430g2553.h>
+#include <H:\TESE-433-V0\MYmsp430.h>
+//===============LED指示灯定义=====================================================
+//LED1
+#define  LED25_ON()          P3OUT |= BIT7      
+#define  LED25_OFF()           P3OUT &= (~BIT7)
+#define  LED25_FLASH()         P3OUT ^= BIT7
+//LED2
+#define  LED50_ON()            P3OUT |= BIT6      
+#define  LED50_OFF()           P3OUT &= (~BIT6)
+#define  LED50_FLASH()         P3OUT ^= BIT6
+//LED3
+#define  LED75_ON()            P3OUT |= BIT5      
+#define  LED75_OFF()           P3OUT &= (~BIT5)
+#define  LED75_FLASH()         P3OUT ^= BIT5
+//LED4
+#define  LED100_ON()           P3OUT |= BIT4      
+#define  LED100_OFF()          P3OUT &= (~BIT4)
+#define  LED100_FLASH()        P3OUT ^= BIT4
+
+//========================================================================================
+#define  RF433CS_ON()           P2OUT &= (~BIT6)  //433CS低电平时。开启工作
+#define  RF433CS_OFF()          P2OUT |= BIT6   
+#define  RF433CS_FLASH()        P2OUT ^= BIT6
+#define  RF433_DITOFFTIM       800
+#define  RF433_DITONTIM        150
+//========================================================================================
+//#define WATCHDOG_ENABLE 1
+//适配器接入引脚检测，P2_4高为无，低为接入。
+#define  ADAPTER_IN			((P2IN & BIT4) != BIT4)
+#define  ADAPTER_OUT		((P2IN & BIT4) == BIT4)
+//========================================================================================
+//充电状态引脚，高为充电完成，低为还在充电。
+#define  CHARGE_STATUS_FINISH	((P2IN & BIT2) == BIT2)
+#define  CHARGE_STATUS_PROCESS 	((P2IN & BIT2) != BIT2)
+//========================================================================================
+//开关按键，低为按下，高为不按。
+#define  BUTTON_PRESSED 			((P2IN & BIT3) != BIT3)//不是高电平
+//#define  BUTTON_EMPTY() 			((P2IN & BIT3) == BIT3)//是高电平
+//========================================================================================
+//bq24195->CE
+#define  ENABLE_Charge()     P2OUT |= BIT0
+#define  DISABLE_Charge()    P2OUT &= (~BIT0)
+//========================================================================================
+//电池采样开关
+#define  OPEN_BAT_SW()        P3OUT |= BIT0
+#define  CLOSE_BAT_SW()      P3OUT &= (~BIT0)
+//========================================================================================
+//AICAM开关
+#define  AICAM_SETVH()       P3OUT |= BIT2
+#define  AICAM_SETVL()      P3OUT &= (~BIT2)
+//========================================================================================
+//充电状态引脚，高为充电完成，低为还在充电。
+#define  P25_STATUS_HI	((P2IN & BIT5) == BIT5)
+#define  P25_STATUS_LO 	((P2IN & BIT5) != BIT5)
+//========================================================================================
+//温度采样开关
+#define  OPEN_NTC_SW()       P3OUT |= BIT1
+#define  CLOSE_NTC_SW()     P3OUT &= (~BIT1)
+//========================================================================================
+//P33拉高，升压芯片不工作，负载直接接到SYS。拉低，则负载12V供电。
+#define OPEN_3481 		  {flag_3481OnOrOff=1;P3OUT &= (~BIT3);}// do{flag_3481OnOrOff=1;P3OUT &= (~BIT3);}while(0)
+#define CLOSE_3481		  {flag_3481OnOrOff=0;P3OUT |= (BIT3);}// do{flag_3481OnOrOff=0;P3OUT |= (BIT3);}while(0)
+//========================================================================================
+#define ERROR_TEMPE        BIT0//温度警报标志
+#define ERROR_OVER_VOL     BIT1//过压警报标志
+#define ERROR_LOAD         BIT2//过载警报标志
+#define ERROR_OVER_VLOW    BIT3//欠压警报标志
+
+
+#define BAT_LOW			0//电池电量级别
+#define BAT_0			1//电池电量级别
+#define BAT_25			2//电池电量级别
+#define BAT_50			3//电池电量级别
+#define BAT_75			4//电池电量级别
+#define BAT_100			5//电池电量级别
+#define BAT_OVER		6//电池电量级别	
+extern unsigned char bat_status;
+
+
+
+
+#define    LOADINTIME     5//负载接入不检测过载时间。100mS为单位
+
+#define LOAD_CK_MAXTIMR            1//1S//不能更改。
+#define NTC_CK_MAXTIMR             5// 10 //10S  
+#define BAT_CK_MAXTIMR             5//20//60//     
+#define VBUS_CK_MAXTIMR            2//2S
+//========================================================================================
+#define NTC_CHECK_DELAY  100                //5S
+#define BAT_CHARGE_CHECK_DELAY 1000         //6000  //5min
+#define BAT_OVERCHARGE_CHECK_DELAY 100      //10S
+#define BAT_DISCHARGE_CHECK_DELAY 10        //1200 //1MIN
+#define BAT_OVERDISCHARGE_CHECK_DELAY  100  //10S 
+#define LOAD_WITHLOAD_CHECK_DELAY    10     //5s
+#define LOAD_WITHOUTLOAD_CHECK_DELAY 10     //500MS
+#define LOAD_OVERLOAD_CHECK_DELAY    10
+
+
+
+#define LOAD_LOST_TO_NL 200     //10s(实际上为5秒左右)无负载后关灯
+#define LOAD_LOSTNL_TO_LT 6000  //5min后进入低功耗.
+
+#define STATUS_LOST_TEMPE		1
+#define STATUS_OVER_TEMPE		2		
+#define STATUS_LOW_TEMPE		3
+#define STATUS_NORMAL_TEMPE		4
+
+#define STATUS_ADAPTER_ON		5
+#define STATUS_ADAPTER_OFF		6
+
+
+
+
+
+
+//#define STATUS_SYSTEM_RSINT		25
+//#define STATUS_SYSTEM_RS232		26
+
+
+#define STATUS_SYSTEM_ON		14
+#define STATUS_SYSTEM_OFF		15
+
+#define STATUS_LOAD_LOST        16   //刚移除负载
+#define STATUS_LOAD_LOST_NL     17	 //移除负载10s了，关指示灯，但还没进入低功耗.
+#define STATUS_LOAD_LOST_LT     18   //移动负载非常久，进入低功耗，需要用开关来开机。
+#define STATUS_LOAD_OVER        19
+#define STATUS_LOAD_NORMAL      20
+
+#define CHARGE_STATUS_up                21//STATUS引脚拉高，使用它作为充电亮4灯的条件
+
+#define  P12V_OUT_ON    1
+#define  P12V_OUT_OFF   0
+
+
+
+#define  gosleeptime_set    5*60 // 5*60//5min     100//进入睡眠时间设定
+
+
+#define  gosleeptime_30S   30 // 30S//进入睡眠时间设定
+#define  gosleeptime_6S   5 // 30S//进入睡眠时间设定
+
+
+#define   DIS_LED_TIM_set    10//10S关指示灯时间
+#define   DIS_LED_TIM_5S    5//5S关指示灯时间
+
+#define    RSTTIMSET   3000//3S    5000//5S      10000//10S     30000//30S  长按KEY30S复位.
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+/*
+
+extern unsigned int BAT_CHECK_VALUE;
+extern unsigned int load_countdown;   
+extern unsigned int charge_status_fincycle;    //sata引脚拉高的时间/周期计数
+
+//AD采样变量
+extern unsigned int BAT;
+extern unsigned int NTC;  //默认25℃ -> 10k
+extern unsigned int LOAD;
+extern unsigned char REG2_CHARGE;
+
+//
+//extern unsigned int ADAPTER_IN_flag;                //适配器接入标志
+
+
+
+
+
+extern unsigned int LOAD_OVER_n;                    //负载连续过载计数
+extern unsigned int battery_n;
+extern unsigned int ADAPTER_N;            //电压检测计数,充电器计数
+
+extern unsigned int BAT_LOADOFFSET;                 //电压检测校准量
+extern unsigned int load_ADC_a;
+extern unsigned int load_ADC_b;          //负载检测，保存上一次负载数据，初始化时为0
+extern unsigned int load_N;                         //负载检测计数
+extern unsigned int load_at;                        //负载状态标志  
+
+extern unsigned int ADC_1;	                        //ADC1保持在  最后一次接负载时  校准后的电压值
+extern unsigned int ADC_2;	                        //ADC2保存最后一次接负载时的  校准后的电压最小值
+extern unsigned int battery_n,ADAPTER_N;                //电压检测计数,充电器计数
+extern unsigned int ADC0_change_n;                      //电压改变计数
+extern int ADC0_old;
+extern int ADC0_change;
+extern unsigned int tempe_error_flag;                   //过高低温标志
+//extern unsigned int tempe_error_N;                      //过高低温标志计数//重设为局部变量
+extern unsigned int OVER_TEMPE_led_flash;               //过温状态后闪烁标志
+
+extern unsigned int button_press_flag;                  //按键按下标志--用于过温度下按键进LPM4
+//extern unsigned int button_press_count;                        //按键按下标志计数--用于过温度下按键进LPM4
+
+extern unsigned char ADAPTER_out_FLAG;
+//
+
+extern unsigned char tempe_status_machine;
+extern unsigned char adapter_status_machine;
+extern unsigned char system_status_machine;
+//extern unsigned char load_status_machine;
+extern unsigned char flag_3481OnOrOff;
+
+*/
+
+
+
+ 
+extern  U16  BT_ADDIS;
+
+
+extern unsigned int BAT;
+
+extern U8 flag_3481OnOrOff;
+extern U8 ADAPTER_out_FLAG;            //适配器接入标志
+extern U8   ADAPTER_IN_flag;
+extern U8    REG2_CHARGE;
+extern U8 adapter_status_machine;
+extern U8 tempe_status_machine;
+extern U8   has_VBUS_input;
+extern  U16 load_countdown;  
+ 
+
+
+extern  U8    ADAPTER_IN5V;
+
+extern  U16  RSTTIM; 
+
+
+
+extern  U8   BAT_LOAD_VOLDOW;//低压过载记录
+
+extern  U8  POW12W_status;
+
+
+extern   U8 charge_status_fincycle; 
+
+
+
+
+
+extern U8 receivedata[7];// =0;
+//extern U8 RX_data[7];// =0;
+extern U8 TX_Send[7];////={0x11,0x22,0x33,0x44,0x55,0x66,0x77,0x88,0x99,0xaa};
+extern U8	TXcount;
+extern U8	RXcount;
+extern U8	RX_eexount;
+extern U8	RX_ok_f;
+extern U8	RX_eetime;
+extern U8   my_state_rd;  
+extern U16   RS232_OFFTIM;
+
+/*
+//U8 ADAPTER_out_FLAG=0; 
+extern  U8  TIMER1mS; 
+extern  U8  TIMER01mS;
+extern  U8 TIMER100mS; 
+extern  U8 TIMER500mS; 
+extern  U16 gosleeptime; ///进入睡眠时间
+extern  U8  error;//错误报警代码
+extern  U8 bat_status;//电量状态
+extern  U8 CHARGE_LEDCOUNT;//充电时候灯级别
+extern  U8 tempp;//暂时计存器。应用计算中
+extern  U16 NTC_CK_TIMR;//温度检测间隔时间
+extern  U16 BAT_CK_TIMR;//电池检测间隔时间
+extern  U8  VCC_INTIME;//有适配器计时
+extern  U16 BAT  =0;
+extern  U16 button_press_flag = 0;     //按键按下标志--用于过温度下按键进LPM4
+extern  U8 button_press_count = 0;    //按键按下标志计数--用于过温度下按键进LPM4
+extern  U8 LPM4_EXIT_flag; 
+extern  //U16 has_VBUS_input=0;//开机，或者有适配器接入时，测量适配器电压。
+extern  U8 flag_3481OnOrOff; //0表示关，1表示开，3开始未初始化。
+extern  U16 PC_N = 0 ;             //程序循环计数(用于充电电压跟踪)
+extern  U16 VBUS_ADC = 0;          //充电电压ADC检测
+extern  U16 VBUS_LAST = 0;         //充电电压上次缓存值
+extern  U16 load_temp = 0;         //负载缓存
+extern  U16 VBUS_LIMIT_over = 0;   //充电电压过限
+extern  U16 LOAD_OVER_n = 0;            //负载连续过载计数
+extern  U16 tempe_error_flag =0;        //过高低温标志（默认非过高低温状态）
+extern  //U16 tempe_error_N =0;         //过高低温标志计数（默认非过高低温状态）//重设为局部变量
+extern  U16 OVER_TEMPE_led_flash=0;     //退出状态后清除闪烁标志
+extern  U8 cycle_flag=0;             //主程序循环周期标志
+extern  U8 CLOSE_LED_10S_FLAG=0;     //10秒后关闭led灯的标志位
+extern  U16 Timer_LOAD_Check =0 ;
+extern  U16 charge_status_fincycle=0;    //sata引脚拉高的时间/周期计数
+extern  U16 NTC  = 512;  //默认25℃ -> 10k
+extern  U16 LOAD =0;
+extern  U8 REG2_CHARGE;// = REG2_CHARGE_1000MA;  //5v适配器用1A充电，12V适配器用3A充电。
+extern  U8 tempe_status_machine;
+extern  U8 adapter_status_machine; 
+extern  U8 system_status_machine;
+extern  U8 load_status_machine;
+*/
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+/****************Copyright (c)**************************
+** File name:               ADC.c
+** Last modified Date:      
+** Last Version:        
+** Descriptions:       
+********************************************************/
+
+//头文件
+#include <msp430g2553.h>
+#include <H:\TESE-433-V0\MYmsp430.h>
+#include "ADC.h"
+#include "delay.h"
+#include "UART.h"
+#include "IIC.h"
+#include "BQ24195.h"
+#include "global.h"
+
+void ADC_Init(){
+  //ADC初始化
+  P1DIR &= ~(BIT0 + BIT3 + BIT4 + BIT5);
+  ADC10CTL0=0;//  
+   
+  ADC10CTL0 &= ~ENC;  //  关闭AD转换器
+ // ADC10CTL0 |= SREF_0 + ADC10SHT_1 + /*REF2_5V + REFON + */ADC10ON; //VRER+ = 2.8V,VR-=VSS 快时钟。采样有问题
+ 
+    ADC10CTL0 |= SREF_0 + ADC10SHT_3 + /*REF2_5V + REFON + */ADC10ON; //VRER+ = 2.8V,VR-=VSS  
+  ADC10CTL1 |= ADC10SSEL_3; //SMCLK
+  ADC10AE0  |= BIT0 + BIT3 + BIT4 + BIT5; //Analog input enable  A0-> BAT,A5->NTC,A3->LOAD
+   
+}
+/***********获取ADC采样数据***死循环取样********/
+unsigned int Acquire_ADC_Result(unsigned char INCH)
+{
+  switch (INCH)
+  {
+    case 0:
+      ADC10CTL1 &= 0x0FFF; //通道恢复默认值,从新选择通道
+      ADC10CTL1 |= INCH_0;
+      break;// Select channel
+    case 3:
+      ADC10CTL1 &= 0x0FFF;//通道恢复默认值,从新选择通道
+      ADC10CTL1 |= INCH_3;
+      break;
+	case 4:
+		 ADC10CTL1 &= 0x0FFF;
+		 ADC10CTL1 |= INCH_4;
+		 break;
+    case 5:
+      ADC10CTL1 &= 0x0FFF; //恢复默认通道,从新选择通道
+      ADC10CTL1 |= INCH_5;
+      break;
+    default: break;
+  }
+  ADC10CTL0 |= ENC + ADC10SC;       // Sampling and conversion start
+   
+  while(ADC10CTL1 & ADC10BUSY)
+  {
+   //查询方式等待AD转换结束    ADC10BUSY=0:No operation is active
+    CLRWDT();//喂狗
+  }
+  ADC10CTL0 &= (~ENC);  //关闭AD，以方便后续切换通道    ADC10CTL1 can be modified only when ENC = 0
+  ADC10CTL0 &= (~ADC10SC);
+  return ADC10MEM;//返回10位转换值
+}
+
+/***********ADC软件滤波程序，两级滤波***********/
+unsigned int Acquire_Filter_Result(unsigned char INCH)
+{
+
+  	unsigned int ADC_temp[9],temp;
+  	unsigned char i,j;
+	//冒泡排序取中间值。
+  	for (i=0;i<9;i++)
+	{
+		ADC_temp[i]=Acquire_ADC_Result(INCH);
+		Delay_ms(1);
+	}
+	for(j=1;j<=9-1;j++) 
+	{ 
+	  for(i=0;i<9-j;i++) 
+	  {
+		if (ADC_temp[i]>ADC_temp[i+1]) 
+		{ 
+		  temp=ADC_temp[i]; 
+		  ADC_temp[i]=ADC_temp[i+1]; 
+		  ADC_temp[i+1]=temp;
+		} 
+	  } 
+
+	}	
+	return ADC_temp[4];
+}
+
+
+
+	/*用于第二级滤波的抗干扰滤波 （去掉最大和最小值再取平均）*/
+ #define  tN 7               //采样次数7,延时约10到20毫秒
+ unsigned int filter_again(unsigned char temp_INCH){
+            unsigned int temp_buffer[tN];
+            unsigned int max_temp,min_temp= 0;
+            unsigned int sample_temp = 0;
+            unsigned int a,b,temp_ADC= 0;
+            
+            for(a=0; a<tN; a++){//获取数据
+                temp_ADC = Acquire_Filter_Result(temp_INCH);
+                temp_buffer[a] = temp_ADC;
+                sample_temp += temp_ADC;    
+            }
+            max_temp = temp_buffer[0];
+            min_temp = temp_buffer[0];
+            for(b=1; b<tN; b++){//获取极值
+                if(temp_buffer[b]>max_temp)
+                    max_temp=temp_buffer[b];
+                if(temp_buffer[b]<min_temp)
+                    min_temp=temp_buffer[b];
+            }
+            sample_temp = ((sample_temp - max_temp - min_temp)/(tN-2));//获取输出
+            return (unsigned int)(sample_temp);
+ }
+    /*滤波--结束*/
+
+
+
+
+/***********获取温度***********/
+unsigned int get_temperature_ADC(){
+	unsigned int ADC = 0;
+
+	Delay_ms(1);  //等待电压稳定
+	ADC = Acquire_Filter_Result(INCH_NTC);	
+	return ADC;
+}
+
+
+
+
+
+/***********获取负载***********/
+
+//#define BAT_RESISTANCE 100   //电池内阻为120毫欧
+//#define BAT_LOWvolt_RESISTANCE 600 //电池低压时，内阻越来越大，3.0V时为1欧，
+//实际上升电压 = ADC/1024 * 2.5V / 10 倍 / 0.16欧 * BAT_RESISTANCE = (ADC * 183 / 1000000)V 电池上升。
+//BAT_LOADOFFSET = (实际上升电压) / 2 / 2.5 * 1024 = ADC * (1024*183/5000000) = ADC * 3 /80
+
+unsigned int BAT_LOADOFFSET;                //电压检测校准量
+unsigned int load_ADC_a = 0;                //负载检测，保存上一次负载数据，初始化时为0
+unsigned int load_ADC_b = 0;                //负载检测，保存上一次负载数据，初始化时为0
+unsigned int load_N = 0;                    //负载检测计数
+unsigned int     load_at = 0;                   //负载状态标志  
+unsigned int     load_IAD = 0; 
+unsigned int    tempw=0;
+
+unsigned int get_load_ADC(){
+	unsigned int ADC = 0;
+        if( load_N != (unsigned int)(~0))load_N++;//电压检测计数，为初始阀值的导入 取得稳定数据所设//if((PC_N <= 1) && (BAT_LOADOFFSET==0))Delay_ms(250);//主要完成带负载启动时的稳定延时
+	ADC = filter_again(INCH_LOAD);
+//--------------电路变更20200515--------------------------------------------------
+//不再使用运放检测电流。更改为采用电压检测法来判断是否开路和短路。ADC>半量程时。为正常工作。否则为短路或者没开升压回路
+   // return ADC;
+    if   (ADC<LOAD_MID) {tempw=1023;} //小于半值。证明有短路.硬件电路已更改。
+		   else  {tempw=300;}//大于于半值。证明在工作和有负载.硬件电路已更改。
+           ADC=tempw;		   
+//=================任何时候都能按照信号开启12V输出==============================================================================================
+	   if (POW12W_status==P12V_OUT_ON)	 { OPEN_3481;}    else {CLOSE_3481;} //20200515 增加
+//===============================================================================================================	   
+    ////load_IAD=ADC;
+    ////if(ADC >= LOAD_LOST && BAT_LOADOFFSET == 0){load_at=1;load_N = 0;}//负载接入动作发生--0905  	
+	if(ADC >= LOAD_LOST){load_at=1;}//负载接入动作发生--20181123
+/*	
+	if(ADC<LOAD_LOST || adapter_status_machine==STATUS_ADAPTER_ON)
+		{
+		 BAT_LOADOFFSET=0;//负载丢失后，电池电压校准量清零--0905
+		 load_at=0;
+	     }
+	else {if(BAT<bat_margin_0-30)
+			 {
+			   BAT_LOADOFFSET=ADC>>2; 
+		     }
+		else {
+                  if(ADC>80){BAT_LOADOFFSET =  ADC-80;BAT_LOADOFFSET = BAT_LOADOFFSET>>3;}
+                  else {BAT_LOADOFFSET =  ADC>>4;}
+		     }
+	      }
+*/	      
+//=====================================================================================================	
+//  LOAD_ADAPTER_OVER_TIM=0;//充电负载超出时间判断清除.
+ ///   if (LOAD_ADAPTER_OVER_TIM!=0) {CLOSE_3481;   return ADC; }//充电时负载超出时间未到。关闭3481.并返回
+//===================================================================================================== 
+
+
+//=========================负载处理=============================================================================== 
+	 if (BAT_LOAD_VOLDOW>0)//产生过负载导致低压处理
+           	{CLOSE_3481;POW12W_status=P12V_OUT_OFF;
+	          load_at=0;load_N = 0;
+	          return ADC;
+            }
+//===============================================================================================================
+
+/*
+//=========================5V充电时负载处理============================================================================ 
+	if (ADAPTER_IN5V==1)
+		{	
+		if(ADC>LOAD_ADAPTER_OVER_IN5V && adapter_status_machine==STATUS_ADAPTER_ON)
+		   {CLOSE_3481;//UCA0_SendString("CLOSE_3481 ");
+			 LOAD_ADAPTER_OVER_TIM=LOAD_ADAPTER_OVER_TIMSET;//关闭时间赋值。
+			}//充电的时候负载电流超过750mA.关闭负载，避免充电电流流失.
+		}	 
+//=========================12V充电时负载处理=============================================================================== 
+     if(ADC>LOAD_ADAPTER_OVER && adapter_status_machine==STATUS_ADAPTER_ON)
+		    {CLOSE_3481;//UCA0_SendString("CLOSE_3481 ");
+		     LOAD_ADAPTER_OVER_TIM=LOAD_ADAPTER_OVER_TIMSET;//关闭时间赋值。
+		    }//充电的时候负载电流超过750mA.关闭负载，避免充电电流流失.
+	else {
+		    if(flag_3481OnOrOff!=1)//非开启情况下       // if(flag_3481OnOrOff==0)
+		  	{//3841关闭情况下
+		     if(ADC<LOAD_LOST_3481OFF || adapter_status_machine==STATUS_ADAPTER_OFF)
+			  	  { OPEN_3481;}//在原先关闭情况下和没适配器情况下，开启3481.                //UCA0_SendString("	 OPEN_3481 ");
+		    }
+	     }	
+*/		
+        //UCA0_SendString("BAT_LOADOFFSET =                        ");
+	//Printf_Integer(BAT_LOADOFFSET);
+        
+	//UCA0_SendString("get_load_ADC =                          ");
+	//Printf_Integer(ADC);
+	return ADC;
+}
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+/***********获取充电通道采样电压***********/
+unsigned int get_VBUS_ADC(){
+	unsigned int ADC = 0;
+	ADC = filter_again(INCH_VBUS);
+	return ADC;
+}
+
+/***********获取电池采样电压***********/
+
+/*专用于电池电压的抗干扰均值滤波 （去掉最大和最小值再取平均）*/
+#define  VN 7               //采样次数7,延时约140毫秒
+unsigned int filter_BAT_voltage(){
+    unsigned int x_buffer[VN];
+    unsigned int max_value,min_value;
+    unsigned int sample_value = 0;
+    unsigned int i,j,ADC_VN;
+    if(ADAPTER_IN_flag == 1 )
+		{//充电的时候获取数据
+        for(j=0; j<VN; j++){
+            ADC_VN = 0;
+            I2C_Write(0x02,REG2_CHARGE_512MA);  //0x00:ICHG->512mA
+            Delay_ms(9);//(延时=9，可以正常运行)
+            ADC_VN = Acquire_Filter_Result(INCH_BAT);
+            I2C_Write(0x02,REG2_CHARGE);        //0x40:1536mA
+            Delay_ms(9); 
+            ADC_VN -= 10;
+            x_buffer[j] = ADC_VN;
+            sample_value += ADC_VN;    
+       }
+		           
+       //UCA0_SendString("charging_BAT_ADC");
+    }
+    else{ for(j=0; j<VN; j++){//非充电的时候获取数据
+            ADC_VN = 0;
+            //I2C_Write(0x02,REG2_CHARGE_512MA);  //0x00:ICHG->512mA
+            //Delay_ms(9);//(延时=9，可以正常运行)
+            ADC_VN = Acquire_Filter_Result(INCH_BAT);
+            //I2C_Write(0x02,REG2_CHARGE);        //0x40:1536mA
+            //Delay_ms(9); 
+            ADC_VN -= 10;
+            x_buffer[j] = ADC_VN;
+            sample_value += ADC_VN;    
+       }
+     //  UCA0_SendString("Dis_charging_BAT_ADC");
+    }
+    max_value = x_buffer[0];
+    min_value = x_buffer[0];
+    for(i=1; i<VN; i++){//获取极值
+        if(x_buffer[i]>max_value)
+            max_value=x_buffer[i];
+        if(x_buffer[i]<min_value)
+            min_value=x_buffer[i];
+    }
+    sample_value = (sample_value - max_value - min_value)/(VN-2);//获取输出
+  if(ADAPTER_IN_flag == 1 )  
+	  {//充电的时候获取数据
+	    if ( charge_status_fincycle<150)
+	    	{//未充满。
+	          sample_value -=bat_CHARGE_CA;
+	    	}
+		
+	  } ////充电的时候，压降会提高。要适当减小。
+    return (unsigned int)(sample_value);
+}
+/*抗干扰均值滤波--结束*/
+
+unsigned int ADC_1 = 0 ;	                        //ADC1保持在  最后一次接负载时  校准后的电压值
+unsigned int ADC_2 = 0 ;	                        //ADC2保存最后一次接负载时的  校准后的电压最小值
+unsigned int battery_n = 0;                             //电压检测计数,                
+unsigned int ADAPTER_N = 0;                             //充电器计数
+unsigned int ADC0_change_n = 0;                         //电压改变计数
+int ADC0_old = 0;
+int ADC0_change = 0;
+unsigned int ADC0_bak=200;
+
+
+unsigned int get_battery_ADC()
+{
+	unsigned int ADC0 = 0;                          //ADC0保存  电压采样6次后的平均值  作为电压实测值
+//	unsigned int j;	
+    unsigned int ADC0_temp;
+//	unsigned int sumb = 0; 
+  //测试9721    ADC0 = filter_BAT_voltage();   		return ADC0;
+
+
+    //if( battery_n == 0 )Delay_ms(300);            //初始化的时候延时等待电压稳定 （会降低上电时、拔下适配器时的反应速度，之后无影响）
+        if( battery_n != (unsigned int)(~0))battery_n++;//电压检测计数，为初始阀值的导入 取得稳定数据所设
+    ADC0 = filter_BAT_voltage();                    /*****抗干扰均值滤波，输出为此刻实测电压*****/
+//------------------------------------------------------------------------------------------------------
+ //------------------------------------------------------------------------------------------------------
+   if (ADC0_bak==ADC0)  {ADC0_bak=ADC0; BT_ADDIS=ADC0;  return ADC0;}//第一步，相等的话赋值并跳出。
+//---------不相等-----今取样数据上升-------------------------------------------------------------------------------------
+     ADC0_temp=ADC0_bak;  ADC0_temp+=5;	 
+ if (ADC0>ADC0_temp)  {ADC0_bak=ADC0;  BT_ADDIS=ADC0_bak;   return ADC0;}///新值大于旧值7步级。更新数据。
+ //---------不相等-----今取样数据下降-------------------------------------------------------------------------------------
+	  ADC0_temp=ADC0;  ADC0_temp+=5;   
+	   if (ADC0_bak>ADC0_temp)	{ADC0_bak=ADC0;   BT_ADDIS=ADC0_bak;   return ADC0;}///新值大于旧值7步级。更新数据。
+//---------不相等---------在允许区域内-------------------------------------------------------------------------------
+    BT_ADDIS=ADC0_bak; //BT_ADDIS<<<<<------显示电量值。
+	  return ADC0;
+//===================================================================================================================================
+
+
+
+
+
+
+#if  0
+	
+      /*适配器插入的时候，判断条件：if ( ADAPTER_IN_flag == 1 && ADAPTER_N == 0)，标志：ADAPTER_N= 1，动作：重写充电和输出。已经移动该部分到main函数开始部分*/
+	if ( ADAPTER_out_FLAG == 1)
+		  {                   //适配器空缺的时候，且ADAPTER_N= 1，判断为拔下适配器的动作发生
+	        ADAPTER_out_FLAG=0;
+                has_VBUS_input=0;
+                load_countdown=0;                                       //计数器A复位，计数5min后进LPM4
+		       ADC_2 = ADC_1 = battery_n = 0 ;
+                ADC_2 = ADC0-3;//拔下适配器的时候为系统刷新阀值！！！
+                BQ24195_Init();
+                Delay_ms(10); 
+	     }
+	
+      /***************摒弃电压波动时的第一个数据，代替为上次ADC_2，以获得较稳定数据(系统初始化的时候无效)***************/
+        ADC0_change = ADC0_old - ADC0;if(ADC0_change<0){ADC0_change = (-ADC0_change);};//取得两次ADC0变化的绝对值
+        if(ADC0_change >= 10 && battery_n > 3 ){ADC0_change_n++;}//UCA0_SendString("ADC0_change_n+1==");//Printf_Integer(ADC0_change_n  );} //变化超10计数
+        if(ADC0_change_n==1 && ADC_2!=0){ADC0_change_n = 0;//UCA0_SendString("ADC0_change_n=clean,back-");//Printf_Integer(ADC_2  );
+            ADC0_old = ADC0;//初始化or变化产生时将数据存入上次ADC0变量内存
+          //  if(ADC_2 >= bat_margin_100){bat_status_machine = STATUS_100_BAT;}//若检测得电压大于满电阀值 即刻刷新状态机
+            return ADC_2;
+        }//第一次变化超10的时候直接返回上次ADC_2（第二次输出真实数据）
+      /*******************************************************************************************/
+	if( ADC_2 == 0 && ADC_1 == 0 && BAT_LOADOFFSET == 0 && battery_n > 2 )
+		{     // BAT_LOADOFFSET  == 0 无负载标志 
+                       //为系统添加电量限阀，保证过校准后不会电量上升  
+          ADC_2 = ADC0;															
+        }                                                                           //只要有校准（有负载就有校准）都返回校准后的电压。没有校准时，返回实测电压
+	if( ADAPTER_IN_flag == 0 && BAT_LOADOFFSET > 0 )
+		{                           //只有当没有适配器 且有负载 且负载校正量大于10时，进行负载下电压校正
+                if( ADC_2 == 0 )Delay_ms(100);
+		for( j=0; j<4; j++ ){
+                        ADC0 = filter_BAT_voltage(); /*****抗干扰均值滤波，输出为此刻实测电压*****/
+                        if( BAT_LOADOFFSET < 15 )   sumb += ( ADC0 + BAT_LOADOFFSET );              //接负载导致电池电压下降。
+                        if( BAT_LOADOFFSET >= 15 && BAT_LOADOFFSET <= 20 )   sumb += ( ADC0 + 16 ); //当校正偏移量在15到20间，将校正数据钳制在16不变
+                        if( BAT_LOADOFFSET > 20 && BAT_LOADOFFSET <= 60 ){  
+                            if(ADC0 < 660){sumb += ( (BAT_LOADOFFSET *8/10) + ADC0 );}
+                            else{sumb += ( (BAT_LOADOFFSET *9/10) + ADC0 );}             //当校正偏移量超过20后，进行过校正处理：只取校正偏移量的80%或90%
+                        }
+                        if( BAT_LOADOFFSET > 60 ){  
+                            if(ADC0 < 660){sumb += ( (BAT_LOADOFFSET *7/10) + ADC0 );}
+                            else{sumb += ( (BAT_LOADOFFSET *8/10) + ADC0 );}             //当校正偏移量超过60后，进行过校正处理：只取校正偏移量的70%或80%
+                        }
+                            //Delay_ms(10);		                                                    //延时，待电压稳定
+		}
+		ADC_1 = (sumb/4);	
+                sumb = 0;
+                if( ADC_2 == 0 )  ADC_2 = ADC_1;
+	  }
+	    //ADC1保持在  最后一次接负载时  校准后的电压值
+	    
+
+		
+	if( ADC_2 > ADC_1 && ADC_1 != 0 )
+		{                      //ADC2保存最后一次接负载时的  校准后的电压最小值
+		    ADC_2 = ADC_1 ;	
+	    }		 	          //保存电压上升前一刻的较小的校准后电压        
+        ADC0_old = ADC0; //将本次ADC0存入ADC0_old作为下一次对比	  
+//=================================================================================================================        
+   if(ADC0 >= bat_margin_100){bat_status = BAT_100;}//若检测得电压大于满电阀值 即刻刷新状态机      
+    if( ADC0 <= 548 && battery_n > 3 )//if( ADC0 <= (300*64/35) && battery_n > 3 )//if( ADC0 <= 548 && battery_n > 3 )
+      { 
+       return ADC0;
+	  }       //实测电压小于548（小于3V）时，过放！！！ 返回该值    
+   if( ADC0 >= 785 && battery_n > 3 )///////// if( ADC0 >= (430*64/35) && battery_n > 3 )
+	 { 
+       return ADC0;
+	 } //实测电压大785，4.3V过充！！！ 要停止充电。4.3/2/2.8*1024=786.28=y		
+//================================================================================================================= 	   
+  if( ADAPTER_IN_flag == 1 || ADC_1 == 0 )
+    { // 接入适配器 或者 从未接负载， 输出实测电压	
+      return ADC0;
+     }
+  if( ADAPTER_IN_flag == 0 && BAT_LOADOFFSET == 0 && ADC_2 >= ( ADC0 + 13 ))
+     {	// 未接入适配器 且 空载 且 电压未回升(实测电压比ADC_2小13以上)
+        // 因为不加经验数据13的话，一般情况是去负载后ADC0比ADC_2小，进入该函数后
+        // ADC0被立刻输出，又因电压回升，所致现象：去负载后电量显示下降后再回升
+	    //（回升到超过ADC_2后再被钳制），13是经验数据--电压回升最大预估量	
+      return ADC0;
+     }  
+  if(ADC_2 >= bat_margin_100){bat_status = BAT_100;}//若检测得电压大于满电阀值 即刻刷新状态机	
+       return ADC_2;  
+      // return ADC_2;	
+
+	  
+#endif
+	  
+}
+/*************************************
+  End Of File
+*************************************/
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+#ifndef __BQ24195_H__
+#define __BQ24195_H__
+
+#define  Open_Q4()           do{I2C_Write(0x07,0x10);}while(0)
+#define  Close_Q4()          do{I2C_Write(0x07,0x30);}while(0)
+#define REG2_CHARGE_1000MA 0x20
+#define REG2_CHARGE_1500MA 0x40
+#define REG2_CHARGE_3000MA 0xA0 //实际上是2.5A
+#define REG2_CHARGE_512MA  0x00  //最小原始充电电流
+#define REG2_UPINC_64MA   4 //递增基准
+
+//#define REG2_CHARGE_512MA  0x00
+
+
+/*
+#define REG2_CHARGE_768MA  0x10
+#define REG2_CHARGE_704MA  0x0C
+#define REG2_CHARGE_640MA  0x08
+#define REG2_CHARGE_576MA  0x04
+*/
+
+
+
+
+
+
+void BQ24195_Init();
+void BQ24195_resetQ4(unsigned int x);
+#endif
+
+
+
+
+
+#endif 
+
+
+
+
+/*
+struct {
+    unsigned B0: 1;
+    unsigned B1: 1;
+    unsigned B2: 1;
+    unsigned B3: 1;
+    unsigned B4: 1;
+    unsigned B5: 1;
+    unsigned B6: 1;
+    unsigned B7: 1;
+   }DDEET,qaqwa;  
+
+#define fhash20mS     DDEET.B0  //U8  fhash1mS;//位操作
+#define sfled100mS    DDEET.B1
+#define sfled500mS    DDEET.B2
+#define F_CHARGE      DDEET.B3          //充电标志
+#define F_VCC_IN      DDEET.B4      
+#define ADAPTER_IN_INT_flag   DDEET.B5  //适配器插入中断标志
+#define ADAPTER_IN_flag   DDEET.B6     //适配器接入标志
+//#define has_VBUS_input    DDEET.B7     //开机，或者有适配器接入时，测量适配器电压。
+//=============================================================================================
+//#define ADAPTER_out_FLAG     qaqwa.B0
+*/
+
+
+
+
+
+
+
+
+#include <msp430g2553.h>
+#include "IIC.h"
+#include "BQ24195.h"
+#include "delay.h"
+#include "UART.h"
+
+#include "global.h"
+
+void BQ24195_Init()
+{
+  //bq24195初始化
+   I2C_Write(0x00,/*0x7F*/0x05); //Input Voltage Limit->3.88V  Input Current Limit->1.5A
+   I2C_Write(0x01,0x10); //Minimum System Voltage Limit->3.00V/Charge Battery
+   I2C_Write(0x02,0x20); //0x20:ICHG->1024mA   0x40:ICHG->1536mA  0x60:ICHG->2048mA   0xA0:3072mA  
+   I2C_Write(0x03,0x00); //Pre-Charge Current Limit->128mA
+   //I2C_Write(0x04,0XC8/*0xB0,0xC8*/); //Charge Voltage Limit->4.24/4.208V//4.3v
+   I2C_Write(0x04,0XB0/*0xB0,0xC8*/); //Charge Voltage Limit->4.24/4.208V//4.2v   
+   I2C_Write(0x05,0x8C); //Enable Termination/Enable Safety Timer 12hrs
+   I2C_Write(0x06,0x03); //Thermal Regulation Threashold->120℃
+   I2C_Write(0x07,0x10); //Charge Voltage at High Temp->4.20V  
+   //UCA0_SendString("======BQ24195_Init--OVER======");
+}
+
+// I2C_Write(0x02,0x00)；充电电流控制
+// I2C_Write(0x04,0xb8/*0xB0,0xC8*/);充电电压极限
+// I2C_Write(0x05,0x8C); 充电时间极限
+
+void BQ24195_Init_OK()
+{
+  //bq24195初始化
+   I2C_Write(0x00,/*0x7F*//*0x07*/0x05); //Input Voltage Limit->3.88V  Input Current Limit->3A
+   I2C_Write(0x01,0x10); //Minimum System Voltage Limit->3.00V/Charge Battery
+   I2C_Write(0x02,0x20); //0x20:ICHG->1024mA   0x40:ICHG->1536mA  0x60:ICHG->2048mA   0xA0:3072mA  
+   I2C_Write(0x03,0x00); //Pre-Charge Current Limit->128mA
+   //I2C_Write(0x04,0xb8/*0xB0,0xC8*/); //Charge Voltage Limit->4.24/4.208V//4.3v
+   //I2C_Write(0x04,0XC8/*0xB0,0xC8*/); //Charge Voltage Limit->4.24/4.208V//4.3v
+   I2C_Write(0x04,0XB0/*0xB0,0xC8*/); //Charge Voltage Limit->4.24/4.208V//4.2v   
+   I2C_Write(0x05,0x8C); //Enable Termination/Enable Safety Timer 12hrs
+   I2C_Write(0x06,0x03); //Thermal Regulation Threashold->120℃
+   I2C_Write(0x07,0x10); //Charge Voltage at High Temp->4.20V  
+   //UCA0_SendString("======BQ24195_Init--OVER======");
+} 
+//#define VBUS_LIMIT        (450*13/39) // 266 //
+void BQ24195_resetQ4(unsigned int x){//控制SYS的，如果关掉SYS就没有输出。
+	//解决5V电源拔掉VBUS口还有4.5V电压的方法：关掉Q4再开，再检测一下充电电压.
+       if(x>153)return;  //179对应4.8V
+	Close_Q4();
+	Delay_ms(50);
+	Open_Q4();
+}
+
+
+
+
+
+
+
+
+
+
+/*
+REGISTER REGISTER NAME RESET
+REG00 Input Source Control Register 00110000, or 30
+Bit 7 EN_HIZ R/W 0 0 – Disable, 1 – Enable Default: Disable (0)
+Input Voltage Limit   输入的最低电压
+Bit 6 VINDPM[3] R/W 0 640 mV Offset 3.88 V,    Range: 3.88 V to 5.08 V
+Default: 4.36 V (0110)
+Bit 5 VINDPM[2] R/W 1 320 mV
+Bit 4 VINDPM[1] R/W 1 160 mV
+Bit 3 VINDPM[0] R/W 0 80 mV
+Input Current Limit   输入电流的最高电流限制    (Actual input current limit is the lower of I 2 C and ILIM)
+Bit 2 IINLIM[2] R/W 0 000 – 100 mA, 001 – 150 mA, Default SDP: 100 mA (000)(OTG pin = 0) or 500
+010 – 500 mA, mA (010)
+Bit 1 IINLIM[1] R/W 0
+011 – 900 mA, 100 – 1.2 A, (OTG pin = 1)
+Bit 0 IINLIM[0] R/W 0
+101 – 1.5 A,
+Default DCP/CDP: 1.5 A (101)
+110 – 2 A, 111 – 3 A
+
+
+REG01 Power-On Configuration Register 00011011, or 1B
+Bit 7 Register Reset R/W 0 0 –此位置1，电源芯片复位，    Keep current register setting, Default: Keep current register setting (0)
+Bit 6 I 2 C Watchdog R/W 0 0 –看门狗的开关位       Normal ; 1 – Reset Default: Normal (0)
+Timer Reset Back to 0 after timer reset
+Charger Configuration
+Bit 5 CHG_CONFIG[1] R/W 读取此两位判断充电的类型  0 00 – Charge Disable, 01 – Charge Default: Charge Battery (01)
+Battery,
+Bit 4 CHG_CONFIG[0] R/W 1
+10/11 – OTG           读取此两位判断充电的类型
+Minimum System Voltage Limit
+Bit 3 SYS_MIN[2] R/W 1 0.4 V Offset: 3.0 V, Range 3.0 V to 3.7 V
+Default: 3.5 V (101)
+Bit 2 SYS_MIN[1] R/W 0 0.2 V
+Bit 1 SYS_MIN[0] R/W 1 0.1 V
+Bit 0 Reserved R/W 1 1 - Reserved Reserved. Must write "1"
+这是输出的电压设置
+
+
+REG02 Charge Current Control Register 01100000, or 60  快充时的最大限流
+Fast Charge Current Limit
+Bit 7 ICHG[5] R/W 0 2048 mA Offset: 512 mA
+Range: 512 to 4544 mA (bq24195)
+Bit 6 ICHG[4] R/W 1 1024 mA
+Range: 512 to 2496mA (bq24195L)
+Bit 5 ICHG[3] R/W 1 512 mA
+Default: 2048 mA (011000)
+Bit 4 ICHG[2] R/W 0 256 mA
+Bit 3 ICHG[1] R/W 0 128 mA
+Bit 2 ICHG[0] R/W 0 64 mA
+Bit 1 Reserved R/W 0 0 - Reserved Reserved. Must write "0"
+Bit 0 FORCE_20PCT R/W 0 0 - ICHG as REG02[7:2] (Fast Charge Default: ICHG as REG02[7:2] (Fast Charge
+Current Limit) and REG03[7:4] (Pre- Current Limit) and REG03[7:4] (Pre-Charge
+Charge Current Limit) programmed Current Limit) programmed (0)
+1 - ICHG as 20% of REG02[7:2] (Fast
+Charge Current Limit) and 50% of
+REG03[7:4] (Pre-Charge Current Limit)
+programmed  
+
+
+
+REG03 Pre-Charge/Termination Current Control Register 00010001, or 11
+Pre-Charge Current Limit
+Bit 7 IPRECHG[3] R/W 0 1024 mA Offset: 128 mA,
+Range: 128 mA to 2048 mA
+Bit 6 IPRECHG[2] R/W 0 512 mA
+Default: 256 mA (0001)
+Bit 5 IPRECHG[1] R/W 0 256 mA
+Bit 4 IPRECHG[0] R/W 1 128 mA
+Termination Current Limit
+Bit 3 ITERM[3] R/W 0 1024 mA Offset: 128 mA
+Range: 128 mA to 2048 mA
+Bit 2 ITERM[2] R/W 0 512 mA
+Default: 256 mA (0001)
+Bit 1 ITERM[1] R/W 0 256 mA
+Bit 0 ITERM[0] R/W 1 128 mA
+当电池低于设定的预冲电压时开启预冲电流的充电。
+
+REG04 Charge Voltage Control Register 10110010, or B2
+Charge Voltage Limit
+Bit 7 VREG[5] R/W 1 512 mV Offset: 3.504 V
+Range: 3.504 V to 4.400 V (111000)
+Bit 6 VREG[4] R/W 0 256 mV
+Default: 4.208 V (101100)
+Bit 5 VREG[3] R/W 1 128 mV
+Bit 4 VREG[2] R/W 1 64 mV
+Bit 3 VREG[1] R/W 0 32 mV
+Bit 2 VREG[0] R/W 0 16 mV
+Battery Precharge to Fast Charge Threshold 预先充电到电池快速充电阈值
+Bit 1 BATLOWV R/W 1 0 – 2.8 V, 1 – 3.0 V Default: 3.0 V (1)
+Battery Recharge Threshold (below battery regulation voltage)
+Bit 0 VRECHG R/W 0 0 – 100 mV, 1 – 300 mV Default: 100 mV (0)
+也就是高于这个限定值开始充电
+
+
+
+REG05 Charge Termination/Timer Control Register 10011010, or 9A
+Charging Termination Enable
+Bit 7 EN_TERM R/W 1 0 – Disable, 1 – Enable Default: Enable termination (1)
+Termination Indicator Threshold
+Bit 6 TERM_STAT R/W 0 0 – Match ITERM, Default Match ITERM (0)
+1 – STAT pin high before actual
+termination when charge current
+below 800 mA
+I2C Watchdog Timer Setting
+Bit 5 WATCHDOG[1] R/W 0 00 – Disable timer, 01 – 40 s, Default: 40 s (01)
+10 – 80 s, 11 – 160 s
+Bit 4 WATCHDOG[0] R/W 1    设置看门狗的时间，如果在这段时间内没有通信，看门口就会强制复位。
+Charging Safety Timer Enable
+Bit 3 EN_TIMER R/W 1 0 – Disable, 1 – Enable Default: Enable (1)   
+Fast Charge Timer Setting   开启快充的时间限制
+Bit 2 CHG_TIMER[1] R/W 0 00 – 5 hrs, 01 – 8 hrs, 10 – 12 Default: 8 hours (01)
+hrs, 11 – 20 hrs (See Charging Safety Timer for details)
+Bit 1 CHG_TIMER[0] R/W 1
+Bit 0 Reserved R/W 0 0 - Reserved Reserved. Must write "0"
+默认时间为8个小时，如果快充到8小时就会自动关闭充电。
+
+
+
+
+
+
+
+
+
+
+REG06 Thermal Regulation Control Register 00000011, or 03
+REG07 Misc Operation Control Register 01001011, or 4B
+REG08 System Status Register —
+REG09 Fault Register —
+REG0A Vender / Part / Revision Status Register —
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+Force Input Current Limit Detection  P20
+     REG07[7]
+
+
+Boost Mode Operation from Battery
+REG04[1]:Battery Precharge to Fast Charge Threshold
+REG01[5:4]=10:Charger Configuration  OTG
+
+
+Narrow VDC Architecture
+REG01[3:1]:Minimum System Voltage Limit
+REG08[0]  :0- not in VSYSMIN regulation (BAT>VSYSMIN)
+           1- In VSYSMIN regulation(BAT < VSYSMIN)
+
+
+REG00 default 00110000
+Input Voltage Limit
+Bit6
+Bit5
+Bit4
+Bit3
+输入的最低电压
+Input Current Limit
+Bit2
+Bit1
+Bit0
+输入电流的最高电流限制
+
+
+REG01 defualt 00011011
+Bit7 Register Reset
+此位置1，电源芯片复位，参数为default
+Bit6 I2C Watchdog Timer Reset
+看门狗的开关位
+Charger Configuaration
+Bit5 
+Bit4
+读取此两位判断充电的类型，00 - Charge Disable,01 - Charge Battery, 10/11-OTG
+Minimum System Voltage Limit
+Bit3
+Bit2
+Bit1
+Bit0
+这是输出的电压设置
+
+
+REG02
+Fast Charge Current Limit
+Bit7
+Bit6
+Bit5
+Bit4
+Bit3
+Bit2
+快充时的最大限流
+
+REG03
+Pre-Charge Current Limit
+Bit7
+Bit6
+Bit5
+Bit4
+当电池低于设定的预冲电压时开启预冲电流的充电。
+Termination Current Limit
+Bit3
+Bit2
+Bit1
+Bit0
+
+
+REG04
+Charge Voltage Limit 
+Bit7
+Bit6
+Bit5
+Bit4
+Bit3
+Bit2
+也就是高于这个限定值开始充电
+Battery Precharge to Fast Charge Threshold
+Bit1 2.8v 或 3.0v
+
+ 
+
+REG05 default 10011010
+Charging Termination Enable
+Bit7
+Termination Indicator Threshold
+Bit6 
+I2C Watchdog Timer Setting
+Bit5
+Bit4
+设置看门狗的时间，如果在这段时间内没有通信，看门口就会强制复位。
+Charging Safety Timer Enable
+Bit3
+开启快充的时间限制
+Fast Charge Timer Seting 
+Bit2
+Bit1
+默认时间为8个小时，如果快充到8小时就会自动关闭充电。
+
+REG06 default 00000011
+Thermal Regulation Threshold
+Bit1
+Bit0
+达到设定温度，电源芯片停止供电
+
+
+REG07 default 01001011
+Force DPDM detection
+Bit7 
+强制芯片进行通信，1-Force D+/D - detection 可以解决上电mcu 信号干扰的问题。
+
+ 
+
+ 
+
+ 
+
+ System Status Register REG08
+Bit7
+Bit6
+USB host   Adapter port  OTG 查看电池连接的设备
+Bit5
+Bit4
+00 – Not Charging, 01 – Pre-charge (<VBATLOWV), 10 – Fast Charging, 11 – Charge Termination Done
+Bit3
+0 – Not DPM, 1 – VINDPM or IINDPM
+Bit2
+0 – Not Power Good, 1 – Power Good
+Bit1
+0 – Normal, 1 – In Thermal Regulation
+Bit0
+0 – Not in VSYSMIN regulation (BAT>VSYSMIN), 1 – In VSYSMIN regulation (BAT<VSYSMIN)
+
+ 
+ 
+
+ 
+
+ 
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+*/
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+//////////头文件、 
+#include <msp430g2553.h>
+#include <H:\TESE-433-V0\MYmsp430.h>
+#include "delay.h"
+#include "ADC.h"
+#include "IIC.h"
+#include "BQ24195.h"
+#include "UART.h"
+#include "global.h"
+/******************************/
+
+//----------------------------------------------------------------
+void   uptime()
+{     
+   if (TIMER1mS>100)
+       {TIMER1mS=0;//100mS
+        TIMER100mS++;TIMER500mS++;TIMER300mS++; RS_T100mS++;		
+        RX_turnstart_TIM++;			 
+         if (RX_eetime!=0) //100mS单元
+         	{RX_eetime--;//接收最长复位时间
+             if (RX_eetime==0)
+             	{receivedata[0]=0;
+			     receivedata[1]=0;
+			     receivedata[2]=0;
+			     receivedata[3]=0;
+			     receivedata[4]=0;	
+				 RXcount=0;
+             	}         	
+         	}
+		
+		   if (load_in_time!=0) {load_in_time--;}		
+           if (TIMER300mS>3)
+		   	  {TIMER300mS=0;//300mS
+		   	      sfled100mS=~sfled100mS;
+		       }		
+           if (TIMER500mS>5)
+		   	  {TIMER500mS=0;//500mS
+		   	    sfled500mS=~sfled500mS;   CHARGE_LEDCOUNT++;    sfled100mS=~sfled100mS;
+				lm4_distim++;
+		       }
+		  if (TIMER100mS>10)
+		   	 {TIMER100mS=0;//1S
+		   	     printime=1;RS232_TIM++;quitetime++; 
+				   if (RS232_OFFTIM<720) {RS232_OFFTIM++;}
+				   //if (system_status_machine == STATUS_SYSTEM_RS232)
+				 	//      {if (gosleeptime!=0)   {gosleeptime--;}//进入睡眠时间减   20200516
+				 	//      }
+		   	     if (NTC_CK_TIMR!=0)   {NTC_CK_TIMR--;}//温度检测时间减
+                 if (BAT_CK_TIMR!=0)   {BAT_CK_TIMR--;}//电池电压检测减		
+                 if (VBUS_CK_TIMR!=0)  {VBUS_CK_TIMR--;}//输入电压时间减                
+			     if (LOAD_CK_TIMR!=0)  {LOAD_CK_TIMR--;}//负载电压时间减  
+			     //if (DIS_LED_TIM!=0)   {DIS_LED_TIM--;}//关指示灯时间减  20200516	
+				 if (LOAD_ADAPTER_OVER_TIM!=0)   {LOAD_ADAPTER_OVER_TIM--;}//充电负载超过灯时间减 					 
+		      }		 
+       }  
+  if ( TIMER01mS>20)  {TIMER01mS=0;fhash20mS=1;}//20mS;//20mS已经更新
+}
+//----------------------------------------------------------------
+
+
+
+
+
+
+
+
+////===========================================================================================
+void Sys_Init()
+{
+ // U8 i = 0;
+    CLRWDT();    // Stop watchdog timer to prevent time out reset  
+  //时钟初始化
+  DCOCTL = 0;                   // Select lowest DCOx and MODx settings
+  BCSCTL1 = CALBC1_1MHZ;        // Set range
+  DCOCTL = CALDCO_1MHZ;         // Set DCO step + modulation */
+  WDTCTL = WDT_MRST_32;         //32ms复位
+  /*****GPIO口初始化*****/
+  //LED
+  P3DIR |= BIT0+ BIT1+ BIT2+ BIT3+ BIT4 + BIT5 + BIT6 + BIT7;   //Output  
+  ///P3OUT =0;  //默认关闭采样开关  
+  P3OUT = BIT3;// 
+  CLOSE_3481;
+  //充放电管理IC状态指示   0:正在充电    1：充电完成或充电静止    1Hz方波，充电错误
+  P2DIR &= (~BIT2); //Input
+  P2REN &= (~BIT2);//Disable Pull-up
+  //充电管理IC使能脚  充电使能：REG01[5:4]=01 and CE = 0->P2.0
+  P2DIR |= BIT0;   //Output
+  P2OUT &= (~BIT0);  //默认Disable 
+  P1DIR |= BIT4;
+  P1OUT &= (~BIT4);  
+  P2DIR |= BIT1+BIT5+BIT6+BIT7;
+  P2OUT &= (~(BIT1+BIT5+BIT6+BIT7));
+  
+  P2DIR &= (~BIT1); //Input
+  P2REN &= (~BIT1);//Disable Pull-up
+ 
+
+
+
+   P2SEL  &=(~BIT6);//关闭晶振脚功能
+   P2SEL  &=(~BIT7);//关闭晶振脚功能
+   
+   
+
+  	P2DIR &= (~BIT5);  //Input
+	P2REN &= (~BIT5);  //pull-up disable
+
+
+   P1DIR &= (~(BIT0 + BIT3 + BIT4 + BIT5)) ; //Analog input enable  A0-> BAT,A5->NTC,A3->LOAD
+   P1REN &= (~(BIT0 + BIT3 + BIT4 + BIT5)) ;;//Disable Pull-up
+   
+
+  CLRWDT();//喂狗 
+  ADC_Init();
+  I2C_Init();    
+  
+  //定时器A初始化
+  TACTL = TACLR; //Timer_A  Clear
+  TACTL = TASSEL_2 + ID_2 + MC_1 + TAIE;    // SMCLK，DIV/4 , Up mode, EN INT
+  //TACCR0 = 12500;  // (1/1M)*4*12500 = 50ms
+   TACCR0 = 250;  // (1/1M)*4*250 = 1ms  
+   CLRWDT();//喂狗
+  /*****P2端口中断初始化*****/
+ // 按键中断 P2.3
+  P2DIR &= (~BIT3);  //Input
+  P2REN &= (~BIT3);  //pull-up disable
+  P2IE  |= BIT3;   //Interrupt enable 
+  P2IES |= BIT3;   //H->L edge
+  //充电电压检测中断 P2.4
+  P2DIR &= (~BIT4);  //Input
+  P2REN &= (~BIT4);  //pull-up disable
+  P2IE  |= BIT4;   //Interrupt enable 
+  P2IES |= BIT4;      //H->L edge  , 只检测适配器接入的中断  
+  P2IFG = 0;
+  _EINT();
+   CLRWDT();//喂狗
+   BQ24195_Init();
+   Delay_ms(50);  //等待电压稳定。
+   CLRWDT();//喂狗   
+   //UCA0_SendString("|====Sys_Init()--OVER====|");
+  UCA0_Init();
+  CLRWDT();//喂狗   
+}
+////===========================================================================================
+
+
+
+
+
+
+////===========================================================================================
+/***********复位全局变量***********/  
+void Reset_flag()
+{
+	
+	  BAT_LOADOFFSET=0;				//电压检测校准量
+	  load_ADC_a = 0;				//负载检测，保存上一次负载数据，初始化时为0
+	  load_ADC_b = 0;				//负载检测，保存上一次负载数据，初始化时为0
+	  load_N = 0;					//负载检测计数
+      load_at = 0;					//负载状态标志	
+
+	
+
+
+    //BAT_LOADOFFSET = 0;                 //电压检测校准量
+   // load_ADC_a=load_ADC_b = 0;          //负载检测，保存上一次负载数据，初始化时为0
+    //load_N = 0;                         //负载检测计数
+    //ADC_1 = 0 ;	                        //ADC1保持在  最后一次接负载时  校准后的电压值
+    //ADC_2 = 0 ;	                        //ADC2保存最后一次接负载时的  校准后的电压最小值
+    //battery_n = 0;                      //电压检测计数
+    //ADAPTER_N = 0;                      //充电器计数
+    //ADC0_change_n = 0;                  //电压改变计数
+ //   ADC0_old=ADC0_change= 0;    
+    ADAPTER_IN_flag = 0 ;  //适配器接入标志
+    PC_N = 0 ;             //程序循环计数(用于充电电压跟踪)
+    VBUS_ADC = 0;          //充电电压ADC检测
+    VBUS_LAST = 0;         //充电电压上次缓存值
+    load_temp = 0;         //负载缓存
+    VBUS_LIMIT_over = 0;   //充电电压过限计数    
+    VBUS_LIMIT_zero=0;
+    tempe_error_flag =0;   //过高低温标志
+    load_countdown=0;      //计数器A复位，计数5min后进LPM4    
+	
+   // CLOSE_LED_10S_FLAG=0;  //10秒后关闭led灯的标志位
+    
+    //tempe_error_N =0;      //过高低温标志计数（默认非过高低温状态）//重设为局部变量
+    OVER_TEMPE_led_flash=0;//过温状态闪烁标志    
+    //UCA0_SendString("|====Reset_flag()--OVER====|");
+     DIS_LED_TIM=DIS_LED_TIM_set;
+     LOAD_OVER_n = 0;       //负载连续过载计数 
+    gosleeptime=gosleeptime_set; //初始化睡眠时间. 
+	error=0;//清除错误报警.
+	LOAD_ADAPTER_OVER_TIM=0;//充电负载超出时间判断清除.
+	ADAPTER_IN5V=0;
+	 NTC_CK_TIMR=0;//温度检测间隔时间
+ 	VBUS_CK_TIMR=0;//输入电压检测时间
+ 	LOAD_CK_TIMR=0;//负载电压检测时间
+	BAT_CK_TIMR=0;//电池检测间隔时间    
+	charge_status_fincycle=0;
+      TIMER1mS=0; 
+      TIMER100mS=0; 
+      TIMER300mS=0;
+      TIMER500mS=0;  
+	  RS232_TIM=0;
+	
+	
+}
+////===========================================================================================
+////===========================================================================================
+void error_dis()//--错误代码灯指示---
+{      if (error==0)  {goto no_err;}	
+		   RESTCOUNT=20;
+		   LED25_OFF();  LED50_OFF(); LED75_OFF();LED100_OFF();//有错误报警。先关闭LED.	
+	   if (sfled100mS==0)	{goto no_err;}			  
+		 //闪烁500mS   //闪烁100mS	 ////sfled100mS=0;
+		//	LED100_ON(); ///100指示灯常亮，配合其它灯显示。
+						// error=ERROR_LOAD;指示灯测试
+		switch(error) 
+		   {	   
+		case ERROR_TEMPE://温度警报标志
+			LED25_ON(); LED100_ON();
+			break;		
+		case ERROR_LOAD://过载警报标志
+		  LED50_ON();	LED75_ON(); //20200516更改
+			break;
+		case ERROR_OVER_VOL: //过压警报标志
+			LED75_ON(); LED100_ON();
+		   break;
+		case ERROR_OVER_VLOW: //欠压警报标志
+			 // LED25_ON(); LED50_ON();    LED75_ON(); 
+			 LED25_ON();   LED50_ON(); //20200516更改
+			  break;			           
+		default:
+				   // pr_sent("adapter:tempe_status_machine status error!!\n");
+			   break;					   
+			}  
+no_err:;
+}
+////===========================================================================================
+////===========================================================================================
+////===========================================================================================
+void status_machine_init()
+{
+  
+   //   system_status_machine=STATUS_SYSTEM_ON;
+	 //=============电池接入第一次时，循环亮灯一次============================================= 
+	  if (LOAD_BAT_IN_ID==0)
+	   {LOAD_BAT_IN_ID=88;//第一次上电的话，先循环亮灯
+	  LED50_OFF(); LED75_OFF(); LED100_OFF();//先关掉 
+	  
+	  LED25_ON(); 
+	  Delay_ms(200); LED50_ON();
+	  Delay_ms(200); LED75_ON();
+	  Delay_ms(200); LED100_ON();
+	  Delay_ms(200);  Delay_ms(50);
+	  LED25_OFF(); LED50_OFF(); LED75_OFF(); LED100_OFF();//先关掉 
+	  //system_status_machine = STATUS_SYSTEM_OFF;
+	  //gosleeptime=gosleeptime_set;//充电时睡眠时间更新。避免进入睡眠。
+	  //DIS_LED_TIM=0;	//有负载重新更新10S关闭指示灯,无负载时。时间自动
+	   VCC_INTIME=0; 
+	  system_status_machine=STATUS_SYSTEM_OFF;
+	   }
+	//==========================================================
+    POW12W_status=P12V_OUT_OFF;//20200516
+    
+  
+
+	if(ADAPTER_IN)  //刚上电时，适配器已接入
+	{    
+		adapter_status_machine=STATUS_ADAPTER_ON;		
+                ADAPTER_IN_flag = 1 ;
+	}
+	else
+	{
+		adapter_status_machine=STATUS_ADAPTER_OFF;
+                ADAPTER_IN_flag = 0 ;
+	} 
+
+	LOAD=get_load_ADC();
+	if(LOAD<LOAD_LOST){
+		load_status_machine=STATUS_LOAD_LOST;
+	}
+	else if(LOAD<LOAD_OVER){
+		load_status_machine=STATUS_LOAD_NORMAL;
+	}
+	else {
+		load_status_machine=STATUS_LOAD_OVER;	
+	}	
+	OPEN_BAT_SW();
+       Delay_ms(50);uptime(); Delay_ms(50);uptime();/// Delay_ms(100); //初始化的时候延时等待电压稳定
+	BAT = get_battery_ADC();
+	CLOSE_BAT_SW(); 
+//--------------------------------------------------------------------------------------------------------	
+
+
+	if(BAT < bat_margin_low)  
+	   {	 SETF_VOL_V00();
+	    if (ADAPTER_IN_flag==0)
+	      {//无充电时，缺电自动关闭
+		   BAT_LOAD_VOLDOW|=1;//负载导致低压标志
+	      }
+	   }
+
+	if(BAT < bat_margin_low)
+	{
+		bat_status=BAT_LOW;
+		//bat_status=BAT_0;
+	    BAT_CK_TIMR=BAT_CK_MAXTIMR;//最长1min检测一次 
+	     SETF_VOL_V00();
+	}
+	else if(BAT < bat_margin_0)  
+	{
+		bat_status=BAT_0;
+	    BAT_CK_TIMR=BAT_CK_MAXTIMR;//最长1min检测一次 
+	     SETF_VOL_V00();
+	}
+	else if(BAT < bat_margin_25)
+	{
+		bat_status=BAT_25;
+		 SETF_VOL_V25();
+	}
+	else if(BAT < bat_margin_50)
+	{
+		bat_status=BAT_50;
+		 SETF_VOL_V50();
+	}
+	else if(BAT < bat_margin_75)
+	{
+		bat_status=BAT_75;
+		 SETF_VOL_V75();
+	}
+	else if(BAT < bat_margin_over)
+	{
+		bat_status=BAT_100;
+		 SETF_VOL_V100();
+	}
+	else 
+	{    SETF_VOL_V100();
+		bat_status=BAT_OVER;
+	}	
+//---------------------温度测试-----------------------------------------------------------------------------------	
+	OPEN_NTC_SW();
+       Delay_ms(50);uptime(); Delay_ms(50);uptime();/// Delay_ms(100);
+	NTC = get_temperature_ADC();
+	CLOSE_NTC_SW();
+	if(NTC > NTC_NON)	  	//1000没有接热敏电阻
+	{
+		tempe_status_machine=STATUS_LOST_TEMPE;tempe_error_flag=0;//过高低温标志
+	}
+	else if(NTC > NTC_MIN)	//962温度低于-25℃
+	{
+		tempe_status_machine=STATUS_LOW_TEMPE;tempe_error_flag=1;//过高低温标志
+	}
+	else if(NTC > NTC_MAX)	//338温度高于-25℃，低于62℃
+	{
+		tempe_status_machine=STATUS_NORMAL_TEMPE;tempe_error_flag=0;//过高低温标志
+	}
+	else 					//温度高于62℃
+	{
+		tempe_status_machine=STATUS_OVER_TEMPE;tempe_error_flag=1;//过高低温标志
+	}
+//--------------------------------------------------------------------------------------------------------	
+  	  //UCA0_SendString("|====status_machine_init()--OVER====|");
+//--------------------------------------------------------------------------------------------------------	
+}
+////===========================================================================================
+
+
+//***********************************************************************************************************************************************************************************************
+#define FLASH_ADDRESS 0x01000                       //定义FLASH信息区地址B段
+unsigned char checkout[4];                          //读出缓冲区,用于验证的
+unsigned char *pc_flash;                            //定义字节指针变量
+unsigned int *pc_flash_segment;                     //定义段地址指针变量
+//向FLASH信息区读出指定数量的字节数据
+//unsigned int*pc_word :信息区数据指针
+//unsigned char *array :读出数据存放数据数组,8位长
+//unsigned char amount :读操的数量,范围0-127
+void read_array(unsigned char *pc_byte, unsigned char *array,unsigned char amount)
+{unsigned char i;	//for(i=1; i<=100; i++)
+if(amount<=127)	
+  {for(i=0;i<amount;i++)
+      {*array = *pc_byte; //读数据，读数据时，flash地址自动加 1	
+	   array++;		  //接收缓冲区地址加 1	
+	   pc_byte++;     //flash地址自动加 1	
+	  }	
+   }	
+}
+//***********************************************************************************************************************************************************************************************
+//***********************************************************************************************************************************************************************************************
+
+
+
+
+
+
+
+
+//////////头文件、 
+#include <msp430g2553.h>
+#include <H:\TESE-433-V0\MYmsp430.h>
+#include "delay.h"
+#include "ADC.h"
+#include "IIC.h"
+#include "BQ24195.h"
+#include "UART.h"
+#include "global.h"
+/******************************/
+
+
+
+
+#define   TIMMA_U250   100
+/**************定时器A溢出中断函数 **************/
+#pragma vector=TIMER0_A1_VECTOR
+ __interrupt void TIMER0_A1(void)
+{  TACTL &= (~TAIFG); //清除溢出中断    /// LED75_FLASH(); //测试
+   TIMER1mS++; TIMER01mS++;TX_R1mS++;  
+   CPU_DITIM++;
+   if (CPU_DITIM>=RF433_DITOFFTIM)  {if (LPM1_EN_STRU==0) {CPU_DITIM=0;}//无LPM1使能
+   	                                   if (CPU_DITIM==RF433_DITOFFTIM) {RF433CS_ON(); /////IE2 |=UCA0RXIE;  //打开接收中断。
+									                                    WDTCTL = WDT_MRST_32;
+																		LPM1_EXIT;
+																		//IE2 |=UCA0RXIE;  //打开接收中断。
+									                                   }
+                                      }  //睡眠中唤醒   	                     
+
+						  
+} 
+//************************************************************************************************************************ 
+
+/*
+#pragma vector=TIMERA0_VECTOR
+__interrupt void TimerA0(void)
+{
+}
+*/
+
+ 
+
+
+//**************外部源中断******************************************************************************************************** 
+
+/*****************端口P2中断函数 ***************/
+
+
+
+
+
+
+
+/*****************端口P2中断函数 ***************/
+#pragma vector=PORT2_VECTOR
+__interrupt void PORT2(void)
+{
+	WDTCTL = WDT_MRST_32; 
+  //按键中断   P2.3
+  if((P2IFG & BIT3) == BIT3)
+  {   
+    P2IFG &= (~BIT3);  //清中断标志
+    P2IE  &= (~BIT3);	
+	//if (RS232_state==1) { goto P2_INT_OUT;}//串口数据还在发送中；不响应
+     my_TD_TESTTIM=5; SET_STUDY_ONF();//开机遥控对吗按键学习	
+     RS232_OFFTIM=0;
+     LPM1_EN_STRU=0;//退出睡眠标志
+    if(adapter_status_machine == STATUS_ADAPTER_OFF)
+    {RSTTIM=0;
+      Delay_ms(10);  //延时10ms，消除按键按下抖动
+      if(BUTTON_PRESSED)
+      {
+        while(BUTTON_PRESSED)
+        {
+          CLRWDT();//喂狗，等待按键弹起   
+          Delay_ms(1);  //延时1ms，消除按键按下抖动
+          RSTTIM++;		
+		   if (RSTTIM>2000)  	{LPM4_EN_STRU=255; goto P2_INT_OUT;} //长按键2S系统进入深度睡眠
+        /// if (RSTTIM>RSTTIMSET)  	{WDTCTL = WDTCNTCL;} //系统复位。   	  
+        }
+        //按键处理代码         
+        if(system_status_machine == STATUS_SYSTEM_ON)
+        {   load_in_time=LOADINTIME;//负载接入延时检测时间20200825
+        	if(load_status_machine==STATUS_LOAD_LOST_NL)
+				{
+			       load_status_machine=STATUS_LOAD_NORMAL;
+				   gosleeptime=gosleeptime_set;//充电时睡眠时间更新。避免进入睡眠。
+		           DIS_LED_TIM=DIS_LED_TIM_set;  //有负载重新更新10S关闭指示灯,无负载时。时间自动递减. 				   
+				 }
+		      else {
+			  system_status_machine = STATUS_SYSTEM_OFF; 
+			  POW12W_status=P12V_OUT_OFF;			   
+              RESTCOUNT=0;//清除复位时间20200825
+			  LED25_OFF();
+			  LED50_OFF();
+			  LED75_OFF();
+			  LED100_OFF();
+		 /// SET_AICAM_OFF();//关闭AICAM状态线。
+          SET_STUDY_OFF();//关闭功能。	
+          SETF_POW_OFF();//关闭电源状态            
+		    }			
+        }
+        else
+        {	
+            //
+        	if(ADAPTER_OUT && (BAT<bat_low_2V6 ))  //bat_margin_low
+				{//WDTCTL = WDTCNTCL;  //系统复位。
+                 ADAPTER_IN_flag = 0 ;
+				  P2IE  |= BIT3; 
+				 goto P2_INT_OUT;    /////// return;
+		        }			
+			system_status_machine = STATUS_SYSTEM_ON;    			
+			  load_in_time=LOADINTIME;//负载接入延时检测时间20200825
+			 POW12W_status=P12V_OUT_ON;
+			 RS232_state=0;//发送串口数据
+		     MAIN_POW_status=0;//升压电源启动
+			if (line_my_state!=0) {my_state=line_my_state; AICAM_SETVH();}//脱机前状态。
+							else {
+								  SETF_POW_AI24G();AICAM_SETVL();//打开AICAM.设定为全功能电源打开
+							     }//无脱机情况			
+			my_state_bak=my_state;//状态已改变。			
+         	ADC10CTL0 |= REFON + ADC10ON;
+			Open_Q4();       //开机开启输入输出
+			ENABLE_Charge(); //开机开启输入输出
+			LPM4_EN_STRU=0;			
+			WDTCTL = WDT_MRST_32;         //32ms复位
+			LPM4_EXIT;
+                    LPM4_EXIT_flag=1;             //LPM4_EXIT_flag
+		//	bat_status_machine=bat_status_machine;		
+		    load_status_machine=STATUS_LOAD_NORMAL;
+		    LOAD_OVER_n = 0;       //负载连续过载计数 
+            gosleeptime=gosleeptime_set;//充电时睡眠时间更新。避免进入睡眠。
+		    DIS_LED_TIM=DIS_LED_TIM_set;  //有负载重新更新10S关闭指示灯,无负载时。时间自动递减. 
+           if (BAT_LOAD_VOLDOW>0)//产生过负载导致低压标志
+           	{   
+           	 gosleeptime=gosleeptime_6S;//睡眠时间更新。避免进入睡眠。
+			 DIS_LED_TIM=DIS_LED_TIM_5S;  //有负载重新更新10S关闭指示灯,无负载时。时间自动递减. 
+           	}  			
+        	error=0;//清除错误报警.
+	        NTC_CK_TIMR=0;//温度检测间隔时间
+        	VBUS_CK_TIMR=0;//输入电压检测时间
+ 	        LOAD_CK_TIMR=0;//负载电压检测时间
+	        BAT_CK_TIMR=0;//电池检测间隔时间
+	        RS232_TIM=0;
+	        TIMER1mS=0;       TIMER100mS=0;       TIMER300mS=0;      TIMER500mS=0; 
+			 has_VBUS_input=1;
+        }   
+      }
+    }
+	else if(adapter_status_machine == STATUS_ADAPTER_ON) //  //if(system_status_machine != STATUS_SYSTEM_OFF)	 
+	{	//20200516增加充电的时候能开启负载输出
+	   RSTTIM=0;
+	   Delay_ms(10);  //延时10ms，消除按键按下抖动
+	   if(BUTTON_PRESSED)
+	   {
+		 while(BUTTON_PRESSED)
+		 {
+		   CLRWDT();//喂狗，等待按键弹起   
+		   Delay_ms(1);  //延时1ms，消除按键按下抖动
+		   RSTTIM++;
+		  if (RSTTIM>RSTTIMSET) 	 {mypr_sent(" if (RSTTIM>RSTTIMSET)\n"); WDTCTL = WDTCNTCL;} //系统复位。		   
+		 }	 		 
+			   if (POW12W_status==P12V_OUT_OFF)  { POW12W_status=P12V_OUT_ON; OPEN_3481;}
+		    else if (POW12W_status==P12V_OUT_ON)  { POW12W_status=P12V_OUT_OFF;CLOSE_3481;}	 
+		    error=0;//清除错误报警.
+	        NTC_CK_TIMR=0;//温度检测间隔时间
+        	VBUS_CK_TIMR=0;//输入电压检测时间
+ 	        LOAD_CK_TIMR=0;//负载电压检测时间
+	        BAT_CK_TIMR=0;//电池检测间隔时间
+	        RS232_TIM=0;
+	        TIMER1mS=0;       TIMER100mS=0;       TIMER300mS=0;      TIMER500mS=0; 
+			 has_VBUS_input=1;
+			 
+	   }
+	} 	
+	////TX_R1mS=0;TXD_COUTIM=5;//数据发射5次 
+	P2IE  |= BIT3;      
+                             //button_press_flag = 1;//按键按下标志--过温度下按键进LPM4（只要该标志有效，就可以进lpm4）        
+            if(ADAPTER_IN_flag == 1){button_press_flag = 0;}
+            if(ADAPTER_IN_flag == 0){button_press_flag = 1;}
+            
+            if(LPM4_EXIT_flag==1)
+				{      //过温度下按键进LPM4无效条件：退出LPM4、充电中、充电器标志
+                  LPM4_EXIT_flag=0;         //LPM4_EXIT_flag清除
+                  button_press_flag = 0;    //按键按下标志清除--用于过温度下按键进LPM4（不进LPM4）
+                }//用于区别按下进LPM4和从LPM4唤醒
+
+P2_INT_OUT:;		    
+  }   
+ //----------------------------------------------------------------------------------------- 
+  //外部电源中断   P2.4
+  if((P2IFG & BIT4) == BIT4)
+  {
+    P2IE  &= (~BIT4);
+    P2IFG &= (~BIT4);  //清中断标志
+      BATT_Charge_state=0;
+     if(ADAPTER_IN)////  if(ADAPTER_IN_flag==0)
+		{
+		Delay_ms(500); 
+		if(ADAPTER_IN){  //适配器接入?			adapter_status_machine=STATUS_ADAPTER_ON;
+			system_status_machine = STATUS_SYSTEM_ON;	
+		    LPM1_EN_STRU=0;//退出1级睡眠标志
+           ////// WDTCTL = WDTCNTCL;  //系统复位。    WDTCTL = WDT_MRST_32;         //32ms复位
+           LPM4_EN_STRU=0;
+        	WDTCTL = WDT_MRST_32;         //32ms复位
+			LPM4_EXIT;
+                    LPM4_EXIT_flag=1;             //LPM4_EXIT_flag
+		/*
+		      ADAPTER_IN_flag = 1 ;
+			//WDTCTL = WDTCNTCL;  //系统复位。   
+			adapter_status_machine=STATUS_ADAPTER_ON;
+			system_status_machine = STATUS_SYSTEM_ON;
+			ADC10CTL0 |= REFON + ADC10ON;
+			WDTCTL = WDT_MRST_32;         //32ms复位
+    		LPM4_EXIT;	 LPM4_EXIT_flag=1;
+			 has_VBUS_input=1; //充电电压判断标志（每程序周期1次）
+			      gosleeptime=gosleeptime_set;//充电时睡眠时间更新。避免进入睡眠。
+		    DIS_LED_TIM=DIS_LED_TIM_set;  //有负载重新更新10S关闭指示灯,无负载时。时间自动递减. 
+        	error=0;//清除错误报警.
+	        NTC_CK_TIMR=0;//温度检测间隔时间
+        	VBUS_CK_TIMR=0;//输入电压检测时间
+ 	        LOAD_CK_TIMR=0;//负载电压检测时间
+	        BAT_CK_TIMR=0;//电池检测间隔时间
+	        RS232_TIM=0;
+	        TIMER1mS=0;       TIMER100mS=0;       TIMER300mS=0;      TIMER500mS=0; 
+			 has_VBUS_input=1;
+
+*/
+			 
+		 }
+	   }
+
+	
+    P2IE  |= BIT4; 
+        ADAPTER_IN_INT_flag = 1;//适配器插入中断标志
+
+		
+  }
+	 
+}
+/********************************************************
+  End Of File
+********************************************************/
+
+/********************************************************
+  End Of File
+********************************************************/
+//************************************************************************************************************************************************
+
+/*
+void UCA0_Init(){
+#if PRINTF_ENABLE
+  P1DIR &= ~BIT1;
+  P1DIR &= ~BIT2;
+  P1SEL |= BIT1+BIT2;
+  P1SEL2 |= BIT1+BIT2;
+  
+  UCA0CTL1 |= UCSWRST;
+  UCA0CTL0 &= ~UC7BIT;   //8位数据位
+  UCA0CTL1 |= UCSSEL_2;  //USCI时钟源=SMCLK
+  UCA0BR0 = 104; //波特率9600
+  UCA0BR1 = 0;  
+  UCA0MCTL = UCBRS0;
+  UCA0CTL1 &= ~UCSWRST;
+  //IE2 |= UCA0RXIE;  //使能接收中断。
+   IE2 &=~ UCA0RXIE;  //关闭接收中断。
+  */ 
+
+
+#pragma vector=PORT1_VECTOR   //    PORT1_VECTOR
+__interrupt void PORT1(void)
+{
+//串口使能中断	 P1.1
+ if((P1IFG & BIT1) == BIT1)
+   {
+    P1IE  &= (~BIT1);
+    P1IFG &= (~BIT1);  //清中断标志  
+   }
+}
+
+
+
+
+
+
+
+
+
+
+
+
+/****************Copyright (c)**************************
+** File name:               main.c
+** Last modified Date:      
+** Last Version:        
+** Descriptions:       
+********************************************************/
+//单片机型号：MSP430G3225
+//使用内部时钟，工作频率：1M
+//https://blog.csdn.net/weixin_29552845/article/details/111969534读取 ID
+//////////头文件、 
+#include <msp430g2553.h>
+#include <H:\TESE-433-V0\MYmsp430.h>
+#include "delay.h"
+#include "ADC.h"
+#include "IIC.h"
+#include "BQ24195.h"
+#include "UART.h"
+#include "global.h"
+/******************************/
+//位操作。
+U8   BAT_LOAD_VOLDOW=0;//低压过载记录
+U8   LOAD_BAT_IN_ID=0;
+U8    fhash20mS=0;        //U8  fhash1mS;//位操作
+U8    sfled100mS;     
+U8    sfled500mS;    
+U8    F_CHARGE;               //充电标志
+U8    F_VCC_IN;            
+U8    ADAPTER_IN_INT_flag;     //适配器插入中断标志
+U8    ADAPTER_IN_flag;      //适配器接入标志
+U8    ADAPTER_out_FLAG=0;   
+U8    has_VBUS_input;       //开机，或者有适配器接入时，测量适配器电压。
+//=============================================================================================
+U16  RSTTIM; 
+U8  TIMER1mS; 
+U8  TIMER01mS;
+U8  TX_R1mS;
+U8  TIMER100mS; 
+U8  TIMER300mS;
+U8  TIMER500mS; 
+U8  CHARGE_OVER_4V2;
+U8  printime; 
+U16 gosleeptime; ///进入睡眠时间
+U8  error=0;//错误报警代码
+U8 bat_status;//电量状态
+U8 CHARGE_LEDCOUNT;//充电时候灯级别
+U8 tempp;//暂时计存器。应用计算中
+U16 NTC_CK_TIMR;//温度检测间隔时间
+U16 VBUS_CK_TIMR;//输入电压检测时间
+U16 LOAD_CK_TIMR;//负载电压检测时间
+U16 BAT_CK_TIMR;//电池检测间隔时间
+U8  VCC_INTIME;//有适配器计时
+U16 BAT  =0;
+U16 VBUS_vol=0;
+U8  BATT_Charge_state;
+U16 button_press_flag = 0;     //按键按下标志--用于过温度下按键进LPM4
+U8 button_press_count = 0;    //按键按下标志计数--用于过温度下按键进LPM4
+U8 LPM4_EXIT_flag; 
+//U8 LPM1_EXIT_flag; 
+
+U8 flag_3481OnOrOff=3; //0表示关，1表示开，3开始未初始化。
+U16 PC_N = 0 ;             //程序循环计数(用于充电电压跟踪)
+U16 VBUS_ADC = 0;          //充电电压ADC检测
+U16 VBUS_LAST = 0;         //充电电压上次缓存值
+U16 load_temp = 0;         //负载缓存
+U16 load_xunshi = 0;       //迅时负载
+
+U16 VBUS_LIMIT_over = 0;   //充电电压过限
+
+U16 VBUS_LIMIT_zero = 0;   //充电电压低压
+
+
+
+U16 LOAD_OVER_n = 0;            //负载连续过载计数
+//U16 tempe_error_N =0;         //过高低温标志计数（默认非过高低温状态）//重设为局部变量
+U16 OVER_TEMPE_led_flash=0;     //退出状态后清除闪烁标志
+U8 cycle_flag=0;             //主程序循环周期标志
+U8  DIS_LED_TIM=0;     //10秒后关闭led灯的标志位
+U16 Timer_LOAD_Check =0 ;
+U16 load_countdown=0;   
+U8 charge_status_fincycle=0;    //sata引脚拉高的时间/周期计数
+U16 NTC  = 512;  //默认25℃ -> 10k
+U16 NTCEETIM  = 0;
+U8  LOAD_ADAPTER_OVER_TIM=0;
+U8  POW12W_status;
+
+
+U8  MAIN_POW_status;
+
+
+
+U8  ADAPTER_IN5V=0;
+	U16 LOAD =0;
+U8 REG2_CHARGE = REG2_CHARGE_512MA;  //5v适配器用1A充电，12V适配器用3A充电。
+U8 tempe_status_machine;
+U8 adapter_status_machine; 
+U8 system_status_machine;
+U8 load_status_machine;
+U8 tempe_error_flag =0;        //过高低温标志（默认非过高低温状态）
+U16 acc;  
+U8  quitetime;
+U8 RS232_TIM =0;
+
+U16 RS232_OFFTIM =0;
+
+
+U8 RX_5Sout_f =0;
+
+
+U8 RX_flash =0;
+
+
+
+U8 RESTCOUNT =0;
+U16  BT_ADDIS=0;
+U8  load_in_time=0;
+U8    RS232_state=0;   
+U8   temp8;
+U8   temp16;
+
+U8   RS_T100mS;    
+//U8   fhash24195TX;
+U8   TXD_COUTIM;
+U8   AICAM_EN_F;
+//U8   TEST_RXRAM;
+U8   my_state_rd;  
+U8   my_state; 
+U8   my_state_bak; 
+U8   line_my_state; 
+U8   my_batt_vol; 
+U8   my_TD_TESTTIM; 
+ U8   RX_turnstart_TIM;
+//----------------------------------------------------------------------------------------------------------------------------
+ U16  CPU_DITIM; 
+U8	 LPM1_EN_STRU;
+U8	 LPM4_EN_STRU;
+#define   LPM4_go()   LPM4_EN_STRU=255;
+#define   LPM4_out()  LPM4_EN_STRU=0;
+U8  lm4_distim; 
+//----------------------------------------------------------------------------------------------------------------------------
+//BATT_Charge_state
+#define  Charge_vhi_set()   {BATT_Charge_state |=BIT0;}// {BATT_Charge_state=0; BATT_Charge_state |=BIT0;}  
+#define  Charge_vhi_clr()   {BATT_Charge_state &=~BIT0;}
+#define  Charge_vlow_set()  {BATT_Charge_state |=BIT1;}// {BATT_Charge_state=0; BATT_Charge_state |=BIT1;}  
+#define  Charge_vlow_clr()  {BATT_Charge_state &=~BIT1;} 
+
+#define  Charge_ing_set()  {BATT_Charge_state |=BIT2;}//{BATT_Charge_state=0; BATT_Charge_state |=BIT2;}  
+#define  Charge_ing_clr()  {BATT_Charge_state &=~BIT2;} 
+#define  Charge_ok_set()   {BATT_Charge_state |=BIT3;}// {BATT_Charge_state=0; BATT_Charge_state |=BIT3;}  
+#define  Charge_ok_clr()  {BATT_Charge_state &=~BIT3;} 
+#define  CK_Charge_ok    ((BATT_Charge_state & BIT3)==BIT3)
+#define  CK_Charge_nok   ((BATT_Charge_state & BIT3)!=BIT3)
+
+
+#define  temp_f_set()   {BATT_Charge_state |=BIT4;}//{BATT_Charge_state=0; BATT_Charge_state |=BIT4;}  
+#define  temp_f_clr()  {BATT_Charge_state &=~BIT4;} 
+#define  load_f_set()  {BATT_Charge_state |=BIT5;}//{BATT_Charge_state=0; BATT_Charge_state |=BIT2;}  
+#define  load_f_clr()  {BATT_Charge_state &=~BIT5;} 
+
+#define   CK_Charge_VinNG   ((BATT_Charge_state==BIT0) || (BATT_Charge_state==BIT1))
+//----------------------------------------------------------------------------------------------------------------------------
+#define  POW_OFF_MA         0
+#define  POW_AI24G_MA   (BIT0+BIT1)  
+#define  POW_AI_MA         BIT0
+#define  POW_TESTI_MA    (BIT0+BIT1)
+//----------------------------------------------------------------------------------------------------------------------------
+#define  RD_TEST_POW  	(my_state_rd & (BIT0+BIT1)
+//----------------------------------------------------------------------------------------------------------------------------
+#define  SETF_POW_OFF()    {my_state &=~(BIT1+BIT0);}
+#define  SETF_POW_AI()     {my_state &=~(BIT1+BIT0);my_state |=(BIT0);}
+#define  SETF_POW_AI24G()  {my_state &=~(BIT1+BIT0);my_state |=(BIT0+BIT1);}
+//----------------------------------------------------------------------------------------------------------------------------
+#define  SET_AICAM_SHF()   {my_state |=BIT6;}  
+#define  SET_AICAM_SLF()   {my_state &=~BIT6;} 
+//----------------------------------------------------------------------------------------------------------------------------
+#define  SET_STUDY_ONF()    {my_state |=BIT7;}
+#define  SET_STUDY_OFF()    {my_state &=~BIT7;}   
+//----------------------------------------------------------------------------------------------------------------------------
+//#define  SETF_VOL_V00()     {my_state &=~(BIT5+BIT4+BIT3+BIT2);}
+//#define  SETF_VOL_V25()     {my_state &=~(BIT5+BIT4+BIT3+BIT2);my_state |=BIT2;}
+//#define  SETF_VOL_V50()     {my_state &=~(BIT5+BIT4+BIT3+BIT2);my_state |=BIT3;}
+//#define  SETF_VOL_V75()     {my_state &=~(BIT5+BIT4+BIT3+BIT2);my_state |=(BIT2+BIT3);}
+//#define  SETF_VOL_V100()    {my_state &=~(BIT5+BIT4+BIT3+BIT2);my_state |=BIT4;}
+#define  SETF_VOL_V00()     {my_batt_vol=0;}
+#define  SETF_VOL_V25()     {my_batt_vol=BIT2;}
+#define  SETF_VOL_V50()     {my_batt_vol=BIT3;}
+#define  SETF_VOL_V75()     {my_batt_vol=(BIT2+BIT3);}
+#define  SETF_VOL_V100()    {my_batt_vol=BIT4;} 
+//------------------------------------------------------------------------------------------------------------------------------
+#define  SETF_charge_ing()  {my_state &=~(BIT5+BIT4+BIT3+BIT2); my_state |=(BIT2+BIT4);}
+#define  SETF_charge_ok()   {my_state &=~(BIT5+BIT4+BIT3+BIT2); my_state |=(BIT3+BIT4);}
+//------------------------------------------------------------------------------------------------------------------------------
+#define  SETF_charge_Vlow() {my_state &=~(BIT5+BIT4+BIT3+BIT2); my_state |=(BIT2+BIT3+BIT4);}
+#define  SETF_charge_Vhig() {my_state &=~(BIT5+BIT4+BIT3+BIT2); my_state |=BIT5;}
+//------------------------------------------------------------------------------------------------------------------------------
+#define  SETF_temp_Vhig()   {my_state &=~(BIT5+BIT4+BIT3+BIT2); my_state |=(BIT2+BIT5);}
+#define  SETF_load()   {my_state &=~(BIT5+BIT4+BIT3+BIT2); my_state |=(BIT3+BIT5);}
+//***************************************************************************************************************************************************
+
+//***************************************************************************************************************************************************
+#include <H:\TESE-433-V0\source\ScriptSub.C>//子程序集合
+//***************************************************************************************************************************************************
+
+
+
+//***********************************************************************************************************************************************************************************************
+//***********************************************************************************************************************************************************************************************
+void set_pow_on()
+{
+   if (MAIN_POW_status==1) {goto set_pow_out;}//已经开机。
+       MAIN_POW_status=1;
+	   BAT_LOAD_VOLDOW=0;
+		system_status_machine = STATUS_SYSTEM_ON;
+	    POW12W_status=P12V_OUT_ON;
+	    RS232_state=0;//发送串口数据
+		ADC10CTL0 |= REFON + ADC10ON;
+		Open_Q4();		 //开机开启输入输出
+		ENABLE_Charge(); //开机开启输入输出		
+		load_status_machine=STATUS_LOAD_NORMAL;
+		LOAD_OVER_n = 0;	   //负载连续过载计数 
+		gosleeptime=gosleeptime_set;//充电时睡眠时间更新。避免进入睡眠。
+		DIS_LED_TIM=DIS_LED_TIM_set;  //有负载重新更新10S关闭指示灯,无负载时。时间自动递减. 
+	   if (BAT_LOAD_VOLDOW>0)//产生过负载导致低压标志
+		{	
+		 gosleeptime=gosleeptime_6S;//睡眠时间更新。避免进入睡眠。
+		 DIS_LED_TIM=DIS_LED_TIM_5S;  //有负载重新更新10S关闭指示灯,无负载时。时间自动递减. 
+		}			
+		error=0;//清除错误报警.
+		NTC_CK_TIMR=0;//温度检测间隔时间
+		VBUS_CK_TIMR=0;//输入电压检测时间
+		LOAD_CK_TIMR=0;//负载电压检测时间
+		BAT_CK_TIMR=0;//电池检测间隔时间
+		RS232_TIM=0;
+		TIMER1mS=0; 	  TIMER100mS=0; 	  TIMER300mS=0; 	 TIMER500mS=0; 
+		 has_VBUS_input=1;  
+set_pow_out:;		 
+}
+//***********************************************************************************************************************************************************************************************
+
+
+
+void main()
+{    
+	Sys_Init(); //系统初始化	 //
+	RF433CS_ON();//433模块片选工作
+    Reset_flag();	     	
+	status_machine_init();
+	mypr_sent("reset\n"); 
+    RS232_state=0;////发送串口数据	
+    ////system_status_machine = STATUS_SYSTEM_RS232;
+    if(adapter_status_machine==STATUS_ADAPTER_ON) {has_VBUS_input=1; ADAPTER_IN_flag = 1 ;ADAPTER_IN_INT_flag=1; }  //有适配器	   
+    load_in_time=LOADINTIME;//负载接入延时检测时间20200825  
+    RS232_OFFTIM=0;
+    my_TD_TESTTIM=5; SET_STUDY_ONF();//开机遥控对吗按键学习
+    BATT_Charge_state=0;
+	VBUS_LIMIT_over = 0;
+	VBUS_LIMIT_zero=0;
+	line_my_state=0;
+	RX_turnstart_TIM=0;
+	LPM4_EN_STRU=0;
+	RF433CS_ON();//433模块片选工作
+//********************************************************************************************************************************
+     pc_flash = (unsigned char *) FLASH_ADDRESS;         //为指针初始化
+     read_array(pc_flash,&checkout[0],4);                    //再读出刚才写的字节
+    // checkout[1]=0X12;//测试专用ID
+	// checkout[2]=0X34;//测试专用ID		 
+//********************************************************************************************************************************
+while(1)
+{  main_LOOP:; 	CLRWDT();  uptime();  error_dis();	  // WDTCTL = WDTPW + WDTHOLD;	 // Stop watchdog timer to prevent time out reset
+    if (fhash20mS==0)  {goto main_out;}	fhash20mS=0; //限制大程序运行时间周期为20mS.    
+//********************************************************************************************************************
+    RF433CS_ON();//433模块片选工作
+//********************************************************************************************************************
+	  if (P25_STATUS_HI) {if ((my_state & BIT6) == BIT6)  {AICAM_EN_F=1; SET_AICAM_SLF();}}//P25为高电平
+                   else  {if ((my_state & BIT6) != BIT6)  {AICAM_EN_F=1; SET_AICAM_SHF();}}//P25为低电平
+      if (AICAM_EN_F!=0) {AICAM_EN_F=0;RS232_TIM=200;//加速反应
+                      	 }   
+//*****遥控对码固定码*************************************************************************************************************** 
+   TX_Send[0]=0X3E;//>号  0X24为接收$号
+   TX_Send[1]=checkout[1];//ID1
+   TX_Send[2]=checkout[2];//ID1   
+ //********************************************************************************************************************  
+//*****************串口接收数据处理***************************************************************************************************	
+ // if (RS232_OFFTIM>=60)  {RS232_OFFTIM=0; goto rsr_nopow;}//从机1分钟无接收到主机信息。从机要关机。
+
+ if (0)/*(RS232_OFFTIM>=660)*/	{///////RS232_OFFTIM=0;//脱离主机1分钟。
+                              if ((my_state & POW_TESTI_MA)==POW_AI24G_MA) {goto rsr_nopow;}//在有AI和24G电源脱机1分钟后.进入关机。把所有设备关闭。不唤醒 
+                         else if ((my_state & POW_TESTI_MA)==POW_AI_MA) 
+                         	  {//只有AI开启后脱机1分钟。 
+                         	      ////mypr_sent("line_out....\n"); 
+                               if (P25_STATUS_LO)  {temp16=0;							   
+							                        tx_loop1:;temp16++; UCA0_SendData(0); UCA0_SendData(0);
+													  if (temp16<250)  {goto tx_loop1;}
+													 RS232_OFFTIM=0;//假设已经连接
+													 line_my_state=my_state;
+							                         mypr_sent("AIreset\n"); 
+							                        }//AI检测为低电平。有AI数据。	 
+                         	  }	 
+						}
+//********************************************************************************************************************
+
+      if (RX_ok_f==1) {//有数据接收过 // RX_data[3]=receivedata[3];//功能
+                        RX_ok_f=0;//清除上次标志
+                        RS232_OFFTIM=0;//1分钟无接收到主机信号。自动关机
+                        line_my_state=0;//有接收。
+						      if ((my_state_rd & POW_TESTI_MA)==POW_AI_MA)    {SETF_POW_AI();   set_pow_on();AICAM_SETVH();}//只打开AI指令
+						else  if ((my_state_rd & POW_TESTI_MA)==POW_AI24G_MA) {SETF_POW_AI24G();set_pow_on();AICAM_SETVL();}//打开全部指令
+						else  if ((my_state_rd & POW_TESTI_MA)==POW_OFF_MA)   {rsr_nopow:;
+						                                                               if (ADAPTER_IN_flag==0) {MAIN_POW_status=0; goto HALH_in; }//无充电状态。直接关机。		
+																			                             else  {//有充电情况下。关闭AI
+																			                                     SETF_POW_OFF(); AICAM_SETVH();//AICAM电源控制
+																			                                    }
+																			                                      
+																			  } //关机指令
+					    TX_R1mS=0;TXD_COUTIM=1;//数据发射5次 
+					    RS232_TIM=200;//数据更新发射
+      	                receivedata[0]=0;receivedata[3]=0;my_state_rd=0;						
+					  }
+///---------------------------------------------------------------------------------------------------------------------------------
+//********************************************************************************************************************
+  if (RS232_TIM>1) //5//每隔5S发送一次
+{
+RS232_TIM=0;      
+if (RX_5Sout_f==1) 
+	{RX_5Sout_f=0;my_state_bak=0;}//5S自动发送数据去主机.  
+if (RX_flash==1) 
+	{RX_flash=0;} else {RX_flash=1;} 	 
+	  // mypr_puts("BATT_Charge_state:",BATT_Charge_state);	  	 
+///////////////充电标志状态转换////////////////////////////////////////////////////////////////////////////////////////////、、、、、、、
+if ((BATT_Charge_state & (BIT0+BIT1+BIT4))==0) {;} else {my_state &=~(BIT3);} //有故障。不为充满
+if ((BATT_Charge_state & BIT2)==BIT2)  { SETF_charge_ing();}//充电中标志
+if ((BATT_Charge_state & BIT3)==BIT3)  { SETF_charge_ok();}//充满电标志
+if ((BATT_Charge_state & BIT0)==BIT0)  { SETF_charge_Vhig();}//充电电压高标志
+if ((BATT_Charge_state & BIT1)==BIT1)  { SETF_charge_Vlow();}//充电电压低标志
+if ((BATT_Charge_state & BIT4)==BIT4)  { SETF_temp_Vhig();}//过温标志
+if ((BATT_Charge_state & BIT5)==BIT5)  { SETF_load();}//过载标志
+/////////////////////////////////////////////////////////////////////////////////////////////////////////////、、、、、、、
+//-----------状态标志更改从新发送---------------------------------------------------------------------------------------------------------
+   if (RX_flash==5) 
+   	{
+   	my_state &=~(BIT5+BIT4+BIT3+BIT2);my_state|=my_batt_vol;
+                       // mypr_puts("BA_1:",my_state);
+   } //单电量数据显示
+	else 
+	{
+	  temp8=my_state;
+	  temp8&=(BIT5+BIT4+BIT3+BIT2);
+	  if (temp8==0) 
+	  {
+	   my_state|=my_batt_vol;
+	   }//无报警过，显示电量。有报警过，这次显示电量。
+					  //  mypr_puts("BA_2:",my_state);	  	 
+	} //电量和报警互显示。	
+}
+/////////////////////////////////////////////////////////////////////////////////////////////////////////////、、、、、、、					
+   if (my_state_bak!=my_state) {my_state_bak=my_state;//状态已改变。
+	  	                        TX_R1mS=0;TXD_COUTIM=2;//数据发射2次 
+	  	                        //////if ((my_state & BIT7)==BIT7) {TXD_COUTIM=5;} //遥控器对码发送5次 
+	  	                        RX_5Sout_f=1;
+							    TX_Send[3]=my_state;//准备发送的数据状态 		
+	  	                       }	  
+//****************************************************************************************************************   
+         ////TX_Send[3]=my_state;//准备发送的数据状态 		        
+      if (RX_turnstart_TIM<4) {RS232_state=1; goto TX_OUTTwL;}   //开机上电时间没到。  
+	  if (RX_turnstart_TIM==5) {RX_turnstart_TIM=50;RS232_state=0;TX_R1mS=255;IE2 |=UCA0RXIE;}   //开机后 500mS打开接收中断，不然会造成433唤醒430开机引脚时，会进入串口中断
+      if (TX_R1mS<200)   {goto TX_OUTTwL; }  TX_R1mS=0;//100mS	//无发射
+      if (TXD_COUTIM!=0) {TXD_COUTIM--;RS232_state=0;}	
+  //------------------------------------------------------------------------------------------------------------     
+	 if (RS232_state==0)
+	   	{RS232_state=1;	  
+	      if (my_TD_TESTTIM!=0) {my_TD_TESTTIM--;TX_Send[3]|=BIT7;}//强制发送学习位
+	      P1IE  &= (~BIT1);  //禁止接收脚中断
+          P1IFG &= (~BIT1);  //清中断标志  
+          IE2 &=~ UCA0RXIE;  //关闭接收中断。   
+		   TX_Send[4]=TX_Send[0]+TX_Send[1]+TX_Send[2]+TX_Send[3];//检验和.	 			   
+		   UCA0_SendData(TX_Send[0]);
+	       UCA0_SendData(TX_Send[1]);
+	       UCA0_SendData(TX_Send[2]);
+	       UCA0_SendData(TX_Send[3]);
+	       UCA0_SendData(TX_Send[4]); 		  
+		   Delay_ms(2);  // Delay_ms(5);//延时5ms，防止RX突然接收
+		   IE2 |=UCA0RXIE;  //打开接收中断。
+	   	}
+	 TX_OUTTwL:;
+	   if (TXD_COUTIM==0)  {SET_STUDY_OFF();}//清除学习标志
+//===================================================================================================================
+	// if  (system_status_machine == STATUS_SYSTEM_RS232){goto RS232_WIT_OUT;}																										
+//********************************************************************************************************************
+// mypr_puts("status:=",adapter_status_machine);// BAT = bat_margin_100;BT_ADDIS=bat_margin_100;//假设条件。
+ //  mypr_puts("BAT:=",BAT);
+ //  mypr_puts("BT_ADDIS:=",BT_ADDIS);
+//***************************************//在激活通信状态下*****************************************************************************
+//********************************************************************************************************************
+//******************************************************************************************************************** 
+ //******************************************************************************************************************** 
+         if(ADAPTER_IN)  {if (VCC_INTIME<20) {VCC_INTIME++;}
+						 if  ((VCC_INTIME==15)||(ADAPTER_IN_INT_flag==1))
+						 	                {mypr_puts("182",temp8);
+						 	                 VCC_INTIME++;
+						 	                 ADAPTER_IN_flag=1; 
+						                     mypr_sent("ADAPTER_IN!!!!!\n\n\n\n");	
+						                     ADAPTER_IN_INT_flag=0;
+								             has_VBUS_input=1; //充电电压判断标志（每程序周期1次）	
+								         //////  /////////  BAT_LOAD_VOLDOW=0;//清除负载导致低压标志
+		                                     adapter_status_machine=STATUS_ADAPTER_ON;
+		                                     system_status_machine = STATUS_SYSTEM_ON;
+	                                     	 ADC10CTL0 |= REFON + ADC10ON;
+											Open_Q4();	//开启输入和输出，所以设置在适配器插入动作发生的地方
+		                              		ENABLE_Charge();
+			                              	Delay_ms(50);Delay_ms(50);uptime(); 
+			                              	BQ24195_Init();//初始化24195---0926
+			                              	Delay_ms(50);uptime(); 	
+                                            REG2_CHARGE=REG2_CHARGE_512MA;//REG2_CHARGE_512MA;//REG2_CHARGE_3000MA;//；、、；　EG2_CHARGE_512MA;                                    
+                                            I2C_Write(0x02,REG2_CHARGE);
+			                                load_status_machine=STATUS_LOAD_NORMAL;
+											charge_status_fincycle=0;
+		                                     Timer_LOAD_Check=~(0);//LOAD_CHECK_VALUE=0;//立即测负载电压。
+		                                     LOAD_ADAPTER_OVER_TIM=0;//充电负载超出时间判断清除.
+		                                     ADAPTER_IN5V=0;
+		                                      NTC_CK_TIMR=0;//温度检测间隔时间
+ 	                                          VBUS_CK_TIMR=0;//输入电压检测时间
+ 	                                          LOAD_CK_TIMR=0;//负载电压检测时间
+	                                          BAT_CK_TIMR=0;//电池检测间隔时间      
+	                                          BATT_Charge_state=0;
+											  VBUS_LIMIT_over = 0;
+											  VBUS_LIMIT_zero=0;
+                                              TIMER1mS=0; TIMER100mS=0; TIMER300mS=0; TIMER500mS=0; CHARGE_OVER_4V2=0;
+						                     }  //有适配器接入							                     
+	                    }//有适配器接入	
+             else      {
+						if (VCC_INTIME!=0)  {VCC_INTIME--;} 		 
+			 	                    if (VCC_INTIME==1) ///if ((VCC_INTIME==0) && (ADAPTER_IN_flag!=0))
+							                   {VCC_INTIME=0; 
+									              mypr_puts("215",temp8);
+									             ADAPTER_IN_flag=0; 
+						                            if(adapter_status_machine==STATUS_ADAPTER_ON) {ADAPTER_out_FLAG=1; 	//拔下适配器的动作标志，用于电池电压检测
+														                                          }  	   
+    						                        	adapter_status_machine=STATUS_ADAPTER_OFF;
+														 POW12W_status=P12V_OUT_OFF;
+													   	 //   WDTCTL = WDTCNTCL;  //系统复位。充电器除掉后复位														 
+											  DISABLE_Charge();
+														 Close_Q4();  //关闭Q4
+	                                             ///	DISABLE_Charge();
+	                                               WDTCTL = WDTCNTCL;  //系统复位。充电器除掉后复位
+						                         has_VBUS_input=0; //充电电压判断标志（每程序周期1次）	
+						                         error&=~ERROR_OVER_VOL;//适配器拿掉清除过压保护	
+						                         LOAD_ADAPTER_OVER_TIM=0;//充电负载超出时间判断清除.
+						                         ADAPTER_IN5V=0;
+						                         	 NTC_CK_TIMR=0;//温度检测间隔时间
+ 	                                                 VBUS_CK_TIMR=0;//输入电压检测时间
+ 	                                                 LOAD_CK_TIMR=0;//负载电压检测时间
+	                                                 BAT_CK_TIMR=0;//电池检测间隔时间     
+	                                                 charge_status_fincycle=0;
+													 BATT_Charge_state=0;
+													 VBUS_LIMIT_over = 0;
+													 VBUS_LIMIT_zero=0;
+                                                     TIMER1mS=0; TIMER100mS=0; TIMER300mS=0; TIMER500mS=0;  CHARGE_OVER_4V2=0;
+						                       ////////   mypr_sent("ADAPTER_OUT!!!!!\n\n\n\n");		
+												////   WDTCTL = WDTCNTCL;  //系统复位。充电器除掉后复位
+						                       }//无适配器ACC插入	
+			            }//无适配器接入或者适配器去除。	 
+ //******************************************************************************************************************
+ //******************************************************************************************************************
+ //******************************************************************************************************************
+ //******************************************************************************************************************
+ //******************************************************************************************************************
+ //********电池电量检测********************************************************************************************************
+ //ADAPTER_IN_flag   充电标志
+    if (BAT_CK_TIMR!=0)   {goto BAT_CK_OUT;}  
+     BAT_CK_TIMR=BAT_CK_MAXTIMR;//最长1min检测一次 
+OPEN_BAT_SW();
+	 Delay_ms(50);uptime();error_dis(); Delay_ms(50);uptime();error_dis();// Delay_ms(100);//初始化的时候延时等待电压稳定
+ BAT = get_battery_ADC();
+ CLOSE_BAT_SW(); 
+
+ Putsf("BAT_dis:",BAT);	
+ //mypr_puts("253",temp8);
+ // BAT = bat_margin_100;BT_ADDIS=bat_margin_100;//假设条件。
+	//Putsf("BAT_dis",BAT*35/64);	
+                          // TX_SENT("BAT:",BAT*35/64);    //Puts(BAT*35/64,"BAT_dis");	   
+ if(BAT < bat_low_2V9)//bat_off_low)	
+	{ CLOSE_3481;
+    if (BAT_LOAD_VOLDOW>1)  {bat_status=BAT_LOW; goto jmjh;}
+	// if (BAT_LOAD_VOLDOW==3)  { goto jmjh;}	 
+	if (ADAPTER_IN_flag==0)  
+	{//无充电时，缺电自动关闭
+	 system_status_machine=STATUS_SYSTEM_OFF;
+	 Reset_flag();//重置所有重要计数和标志	   
+	 LPM4_EXIT_flag=0;
+	 Close_Q4();  //关闭输入和输出！！！
+	DISABLE_Charge();
+	Delay_ms(50);uptime(); Delay_ms(50);uptime(); 
+	I2C_Write(0x00,/*0x7F*/0x80);//--
+	has_VBUS_input=0;//  
+	WDTCTL = WDTPW + WDTHOLD;	  // Stop watchdog timer to prevent time out reset	
+	P2DIR &= (~BIT3);  //Input
+	P2REN &= (~BIT3);  //pull-up disable
+	P2IE	|= BIT3;   //Interrupt enable 
+	P2IES |= BIT3;	 //H->L edge										   //充电电压检测中断 P2.4
+	 
+	 P2DIR &= (~BIT1); //Input
+	 P2REN &= (~BIT1);//Disable Pull-up
+
+	 P2DIR &= (~BIT4);	//Input
+	 P2REN &= (~BIT4);  //pull-up disable
+	 P2IE  |= BIT4; //Interrupt enable 
+	 P2IES |= BIT4;    //H->L edge	, 只检测适配器接入的中断  
+	 P2IFG = 0;
+	_EINT();
+	 LED25_OFF();
+	 LED50_OFF();
+	 LED75_OFF();
+	 LED100_OFF();
+	 
+     if (LPM4_EXIT_flag==0)  {LPM4_EXIT_flag=1;LPM4;}//进入低功耗模式
+	 //// WDTCTL = WDTCNTCL;//系统复位。 
+     }
+    jmjh:;	
+    BAT_LOAD_VOLDOW|=3;
+   }
+
+// mypr_puts("297",temp8);
+ if(BT_ADDIS < bat_margin_low)
+ {  CHARGE_OVER_4V2=0; //低于3V
+	 bat_status=BAT_LOW;//		
+	 SETF_VOL_V00();
+ }
+ else if(BT_ADDIS < bat_margin_0)  
+ {  CHARGE_OVER_4V2=0;
+	 bat_status=BAT_0;  
+	  SETF_VOL_V00();	 
+ }
+ else if(BT_ADDIS < bat_margin_25)
+ {  CHARGE_OVER_4V2=0;
+	 bat_status=BAT_25;
+	  SETF_VOL_V25(); 
+ }
+ else if(BT_ADDIS < bat_margin_50)
+ {  CHARGE_OVER_4V2=0;
+	 bat_status=BAT_50;
+	  SETF_VOL_V50();
+ }
+ else if(BT_ADDIS < bat_margin_75)
+ {  CHARGE_OVER_4V2=0;
+	 bat_status=BAT_75;
+	  SETF_VOL_V75();
+ }
+ else if(BAT < bat_margin_over)
+ {  
+	 bat_status=BAT_100;
+	  SETF_VOL_V100();
+ }
+ else 
+ {
+	 bat_status=BAT_OVER;
+	  SETF_VOL_V100();
+ }  
+   // if(BAT >=(408*64/35)) {CHARGE_OVER_4V2=1;}//够4.2V     
+ BAT_CK_OUT:;
+  // mypr_puts("329",temp8);
+     if(BAT >=bat_low_4V1) {CHARGE_OVER_4V2=1;}//够4.2V 
+	     if(BAT >=bat_low_3V4) {BAT_LOAD_VOLDOW=0;}//够3.4V   
+	     else if(BAT  <bat_low_3V0) { 	CLOSE_3481;   BAT_LOAD_VOLDOW|=1; }//低于3V  BAT_LOAD_VOLDOW=1;//负载导致低压标志
+		 if (BAT_LOAD_VOLDOW>0)  {bat_status=BAT_0; CLOSE_3481;
+		                           if (gosleeptime>gosleeptime_6S) {gosleeptime=gosleeptime_6S;DIS_LED_TIM=DIS_LED_TIM_5S;}//低电压3.0V 电时睡眠时间更新。加速进入睡眠。
+				                     //if (DIS_LED_TIM=DIS_LED_TIM_5S) {DIS_LED_TIM=DIS_LED_TIM_5S;}  //有负载重新更新10S关闭指示灯,无负载时。时间自动递减. 	
+		                          }//有过低压标志。电源要定准为10个百分点以下。
+ //******************************************************************************************************************
+ //******************************************************************************************************************
+ //******************************************************************************************************************
+ //******************************************************************************************************************
+ //*********温度检测*********************************************************************************************************
+    if (NTC_CK_TIMR!=0)   {goto NTC_CK_OUT;}   
+        NTC_CK_TIMR=NTC_CK_MAXTIMR;//10S检测一次   1S检测一次  
+       // mypr_puts("344",temp8);
+   OPEN_NTC_SW();
+	 Delay_ms(50);uptime();error_dis(); Delay_ms(50);uptime();error_dis();
+ NTC = get_temperature_ADC();
+ CLOSE_NTC_SW();
+                    //  TX_SENT("NTC:",NTC);    //Puts(NTC,"   NTC_dis");
+ if(NTC > NTC_NON)		
+ { //1000没有接热敏电阻
+	 tempe_status_machine=STATUS_LOST_TEMPE;tempe_error_flag=0;
+ }
+ else if(NTC > NTC_MIN)  
+ {//962温度低于-25℃
+	 tempe_status_machine=STATUS_LOW_TEMPE;tempe_error_flag=1;//过低温标志
+ }
+ else if(NTC > NTC_MAX) 
+ { //温度高于-25℃，低于62℃ 温度正常区
+	 tempe_status_machine=STATUS_NORMAL_TEMPE;tempe_error_flag=0;//过高低温标志
+ }
+ else					
+ { //温度高于62℃
+	 tempe_status_machine=STATUS_OVER_TEMPE;tempe_error_flag=1;//过高温标志
+ } 
+ 
+    if (tempe_error_flag==1) { error=ERROR_TEMPE;
+	                             temp_f_set();   //SETF_temp_Vhig();	                             
+	                             NTCEETIM=1;
+	                             Close_Q4();  //关闭输入和输出！！！
+                                 DISABLE_Charge();
+                                 Delay_ms(50);uptime(); Delay_ms(50);uptime(); 
+                                 I2C_Write(0x00,/*0x7F*/0x80);//--
+                                 has_VBUS_input=0;//
+                                 DIS_LED_TIM=DIS_LED_TIM_set;  //有负载重新更新10S关闭指示灯,无负载时。时间自动递减. 
+					            
+	                          } //过温报警	                         
+                       else   {error&=~ERROR_TEMPE;
+					           temp_f_clr();
+					           if (NTCEETIM!=0)
+					             {NTCEETIM--;
+                                    Open_Q4();  //开启输入和输出。
+	                                ENABLE_Charge();
+	                                Delay_ms(50);	     
+	                                BQ24195_Init();//初始化24195---0926
+	                                Delay_ms(50);uptime();  
+	                                I2C_Write(0x02,REG2_CHARGE);
+									has_VBUS_input=1;//
+								    gosleeptime=gosleeptime_set;//充电时睡眠时间更新。避免进入睡眠。
+	                                DIS_LED_TIM=DIS_LED_TIM_set;  //有负载重新更新10S关闭指示灯,无负载时。时间自动递减. 
+					              }
+							  }
+							  //无过温度。清除错误标志            
+ NTC_CK_OUT:;
+ //******************************************************************************************************************
+ //******************************************************************************************************************
+ //******************************************************************************************************************      
+ //********************负载/短路保护检测**********************************************************************************************
+		   if  (error==ERROR_TEMPE) {goto LOAD_CK_OUT;} //20200516	 
+		///   mypr_puts("398",temp8);
+		  load_xunshi=Acquire_ADC_Result(INCH_LOAD);//20mS测试负载。加快短路检测反应。20181109		   
+		 if (load_xunshi<LOAD_MID) 
+							 {
+							  Delay_ms(10);//20200516	//Delay_ms(20);
+							  load_xunshi=Acquire_ADC_Result(INCH_LOAD);//20mS测试负载。加快短路检测反应。20181109	  
+							   if (load_xunshi>LOAD_MID) {goto dled;}							  
+							  Delay_ms(10);//20200516	//Delay_ms(20);
+							  load_xunshi=Acquire_ADC_Result(INCH_LOAD);//20mS测试负载。加快短路检测反应。20181109	  
+							  if (load_xunshi<LOAD_MID)  goto load_max_in;//电流过大。关闭BQ
+							 }	//快速负载响应。过大。
+		 dled:; 			 
+	 if (LOAD_CK_TIMR!=0)	 {goto LOAD_CK_OUT;}   
+		 LOAD_CK_TIMR=LOAD_CK_MAXTIMR;	// 1S检测一次  
+		 uptime(); error_dis();  
+		 load_temp = get_load_ADC();//负载取样	 
+		 if (load_at==1)  {DIS_LED_TIM=DIS_LED_TIM_set;  //有负载重新更新10S关闭指示灯,无负载时。时间自动递减.	 // DIS_LED_TIM=DIS_LED_TIM_set;   //10秒后关闭led灯的标志位
+						   gosleeptime=gosleeptime_set;  //有负载重新更新进入睡眠时间。
+						   if (load_status_machine==STATUS_LOAD_LOST_NL) {load_status_machine=STATUS_LOAD_NORMAL;}
+						  }
+				 if (DIS_LED_TIM==0) {load_status_machine=STATUS_LOAD_LOST_NL;}//移除负载10s了	 
+  load_max_agin:			   
+	  if(load_temp < LOAD_OVER)
+		 {	 if (error==ERROR_LOAD)
+			   { error&=~ERROR_LOAD;//无过载。清除错误标志	
+				 load_f_clr();
+			   Open_Q4(); ENABLE_Charge();
+			   BQ24195_Init();//初始化24195---0926
+			   if(ADAPTER_IN_flag == 1){I2C_Write(0x02,REG2_CHARGE);}
+			   Delay_ms(50); 
+			   load_temp = get_load_ADC();//负载取样   
+			   if(load_temp > LOAD_OVER) {goto load_max_agin;}			
+			   LOAD_OVER_n=0;						   
+			   } 
+		   goto LOAD_CK_OUT;
+		  }
+  load_max_in:		   
+	  if  (load_in_time!=0)  {goto LOAD_CK_OUT;}//20200825负载检测延时。。。。		  
+	   BAT_CK_TIMR=100;//电池电压检测时间减慢避免电量顺势下降.更新		   
+
+  if (VBUS_vol>(VBUS_LIMIT_MAX-5))  {goto noloadee;}
+  if (POW12W_status==P12V_OUT_OFF)  {noloadee:;load_f_clr();error&=~ERROR_LOAD;									
+	   							     goto LOAD_CK_OUT; 								  
+	   							    } //12V    
+	   							    
+	   error=ERROR_LOAD;//过载报警	  
+	   load_f_set();	   
+	   CLOSE_3481;//关闭12V输出 	 
+	   //LOAD_OVER_n++; 
+	   LOAD_OVER_n=0;//20200516
+ /////////	   if( LOAD_OVER_n >= 4){system_status_machine=STATUS_SYSTEM_OFF;LPM4_EXIT_flag=0;}//过载6S.直接关机。
+					   ///更改过载保护次数。由6次更改为4次。20181120
+		uptime();  error_dis();  
+ LOAD_CK_OUT:; 
+ //******************************************************************************************************************
+ //******************************************************************************************************************
+ //******************************************************************************************************************
+ //******************************************************************************************************************
+ //******************************************************************************************************************
+ //******************************************************************************************************************
+ //******************************************************************************************************************
+ //******************************************************************************************************************
+ //error=0;
+ //bat_status=BAT_25;
+ //F_CHARGE=0;      
+       if  (system_status_machine==STATUS_SYSTEM_OFF)  {goto ERRORCKIN;} //关机。在此放置关机指令避免显示错觉.     
+       if (ADAPTER_IN_flag==1)  {F_CHARGE=1;} else {F_CHARGE=0;} //充电标志以插头插入为准.
+//********LED显示子程序******************************************************************************************************
+
+//--------------普通电量显示------------------------------------------------------------------------ 
+       if (F_CHARGE==1)    {goto CHARGE_DISLEDIN;}//有充电调往充电显示.
+       if (error!=0)  {goto ERRORCKIN;}   //有错误直接跳去错误显示.
+       if (DIS_LED_TIM==0) {LED25_OFF();LED50_OFF();LED75_OFF();LED100_OFF();goto ERRORCKIN;}//无负载。指示灯不显示      
+	   uptime();  error_dis();	 
+//batt_rs232dis:;	   
+   // mypr_puts("469",temp8);
+	   switch(bat_status)//无充电标志。
+ 	     {//普通电量显示
+		 case BAT_LOW:	 
+		 case BAT_0:// //1
+			 LED50_OFF(); LED75_OFF(); LED100_OFF(); 
+			 if (sfled500mS==0) {LED25_OFF();} else {LED25_ON();}//LED25_FLASH(); Delay_ms(500);		
+			 SETF_VOL_V00();
+			 break;
+		 case BAT_25:
+			 LED25_ON();LED50_OFF();LED75_OFF();LED100_OFF();
+			 break;
+		 case BAT_50:
+			 LED25_ON();LED50_ON();LED75_OFF();LED100_OFF();
+			 break;
+		 case BAT_75:
+		     LED25_ON();LED50_ON();LED75_ON();LED100_OFF(); 
+			 break; 								 
+		 case BAT_100:
+		 case BAT_OVER:
+		     LED25_ON();LED50_ON();LED75_ON();LED100_ON(); 
+			 break;
+		  default:
+			 break;								 
+	    }
+	    goto ERRORCKIN;
+//******************************************************************************************************************
+ //******************************************************************************************************************
+ //#define VBUS_LIMIT     (801*128/385) //266 //8v以下用1A，8V以上用3A
+//#define VBUS_LIMIT_MAX (1800*128/385) //598
+ /////===================================================================
+ CHARGE_DISLEDIN:;
+ //===========================================================================================
+	 if (VCC_INTIME>15)
+				   {//适配器模拟还在.
+					if (VBUS_vol<145)                    //154 到板电压4.68V，0.42V，测试了4个都是这个值
+					  {//当适配器为4.5V或者以下。强制复位//144 计算能到4.4V
+					   DISABLE_Charge();
+					   Close_Q4();  //关闭Q4
+	                    ///	DISABLE_Charge();	                                             
+					   Charge_vlow_set();// WDTCTL = WDTCNTCL;  //系统复位。   WDTCTL = WDT_MRST_32; 		//32ms复位 
+					  }
+					}
+ //===========================================================================================
+ /***********充电电压检测：据此设置充电电流、充电过压的操作******取样回路上拉100K,下拉10K*****/ 
+ //电压检测为上拉100K-下拉10K分压取样。 AD为电源电压2.8V和地。所以。公式为AD数值=VOL/11/2.8*1024. 即AD=VOL*2560/77	比如8V	   AD=800*128/385
+ if (VBUS_CK_TIMR!=0)   {mypr_sent("goto VBUS_CK_OUT"); goto VBUS_CK_OUT;}   
+      VBUS_CK_TIMR=VBUS_CK_MAXTIMR;//2S检测一次  
+      mypr_sent("VBUS_CK_TIMR=VBUS_CK_MAXTIMR;");
+      uptime();  error_dis();	
+      VBUS_vol=get_VBUS_ADC(); // TX_SENT("VBUS_vol:",VBUS_vol*3);  // TX_SENT("VBUS:",VBUS*385/128); 
+ //-------------电流设定-------------------has_VBUS_input=1时候设定。设定为一次-----------------------------------------------------------------------
+       if(has_VBUS_input==1)
+	 	    {
+	 	       mypr_sent(" if(has_VBUS_input==1)");
+	 	       has_VBUS_input=0;////只进行一次   
+			   if((VBUS_LIMIT_MAX > VBUS_vol) && (VBUS_vol > VBUS_LIMIT))
+				 	{//8-18V  正常输入充电电压范围.
+					      if(VBUS_LIMIT_over != 0){Open_Q4();ENABLE_Charge();}
+						     VBUS_LIMIT_over = 0;	//充电电压过限计数-复位		
+						      if(VBUS_LIMIT_zero != 0){Open_Q4();ENABLE_Charge();}  
+						     VBUS_LIMIT_zero=0;
+				          REG2_CHARGE = REG2_CHARGE_3000MA;
+				          I2C_Write(0x02,REG2_CHARGE);
+						  mypr_sent("REG2_CHARGE = REG2_CHARGE_3000MA;");
+				    }			 
+		 	 if ((VBUS_LIMIT > VBUS_vol) && (VBUS_vol > VBUS_5V20))
+				 	{//8以下 正常输入充电电压范围.
+						   if(VBUS_LIMIT_over != 0){Open_Q4();ENABLE_Charge();}
+						      VBUS_LIMIT_over = 0;	//充电电压过限计数-复位
+						     if(VBUS_LIMIT_zero != 0){Open_Q4();ENABLE_Charge();}  
+						      VBUS_LIMIT_zero=0;
+				           REG2_CHARGE = REG2_CHARGE_1000MA;
+				           I2C_Write(0x02,REG2_CHARGE);
+						   mypr_sent("REG2_CHARGE = REG2_CHARGE_1000MA;");
+				    }  //if(VBUS_LAST == ADC_temp)mypr_sent("VBUS_LAST ==== ADC_temp!!!   ");  //验证功能后请注释掉
+               /// VBUS_LAST = VBUS_vol;               
+     	    }
+//=======================================================================================================
+              if(VBUS_LIMIT > VBUS_vol /*&& ADC_temp > 149*/)
+				  { 
+				   mypr_sent("if(VBUS_LIMIT > VBUS_vol");
+				   ADAPTER_IN5V=1;//充电时候。5V输出重启判断
+     	          }
+ //-------------------------------------------------------------------------------------------------------
+   ////mypr_puts("VBUS_vol",VBUS_vol);	
+ //**********************************************************************************************************************************================================================================================================================================== 
+    if (VBUS_LIMIT_1V0> VBUS_vol) 
+		{
+		 mypr_sent("if (VBUS_LIMIT_1V0> VBUS_vol)");
+		 VBUS_vol=(VBUS_LIMIT_MAX+10);
+		 }//当检测到电源电压低于1V时。可能充电适配器电压过高。硬件拉为低电压。数据模拟高压电压
+	if(VBUS_vol > VBUS_LIMIT_MAX)
+		 { 
+		 mypr_sent("if(VBUS_vol > VBUS_LIMIT_MAX)");
+		    has_VBUS_input=1;//以便下次连续检测充电电压				   
+		// mypr_puts("544",temp8);
+			uptime(); error_dis();	Delay_ms(100); 
+			uptime(); error_dis();	Delay_ms(100);	//	Delay_ms(300);				//初始化的时候延时等待电压稳定
+			VBUS_vol = get_VBUS_ADC();
+		   if (VBUS_LIMIT_1V0> VBUS_vol) {VBUS_vol=(VBUS_LIMIT_MAX+10);}//当检测到电源电压低于1V时。可能充电适配器电压过高。硬件拉为低电压。数据模拟高压电压
+			if(VBUS_vol > VBUS_LIMIT_MAX)
+			   { uptime();	has_VBUS_input=1;//以便下次连续检测充电电压    
+				VBUS_LIMIT_over+=1; 					   
+				Close_Q4();
+				/*****************设置检测到3次(6s)充电过压后进入低功耗*********************/
+				if( VBUS_LIMIT_over >= 2)
+				   { 
+				////goto  HALH_in; //跳去关机.	   
+					DISABLE_Charge();  
+					error=ERROR_OVER_VOL;
+					Charge_vhi_set();	   
+				   }
+				/*****************************************************************************/
+				   Close_Q4();
+				   DISABLE_Charge();Delay_ms(100);Delay_ms(100);						  
+				   //mypr_puts("705.....",temp8);
+				   goto ERRORCKIN;//有错误。跳去报警						   
+				}	 
+		 }
+	 else 
+	   {//无过压。
+	    mypr_sent("if(VBUS_vol > VBUS_LIMIT_MAX)_else");
+		error&=~ERROR_OVER_VOL;//电压回复正常清除过压保护	
+		if ((BATT_Charge_state & BIT0) ==BIT0) { Open_Q4(); ENABLE_Charge();}  //开启输入和输出。
+		  Charge_vhi_clr();
+	   } 
+//**********************************************************************************************************************************================================================================================================================================== 
+//===========================充电低压压响应============================================================================   
+	  if (VBUS_5V20> VBUS_vol  ) 
+	  	{
+	  	  mypr_sent("if (VBUS_5V20> VBUS_vol  ) ");
+	  	  has_VBUS_input=1;//以便下次连续检测充电电压	 	                       
+		  uptime(); error_dis();	 Delay_ms(100); 
+		  uptime(); error_dis();	 Delay_ms(100);  //  Delay_ms(300); 			 //初始化的时候延时等待电压稳定
+           VBUS_vol = get_VBUS_ADC();
+          if (VBUS_5V20> VBUS_vol ) 
+			 {
+			  uptime(); VBUS_LIMIT_zero+=1;		
+		      uptime(); error_dis();	 Delay_ms(100); 
+		      uptime(); error_dis();	 Delay_ms(100);  //  Delay_ms(300); 			 //初始化的时候延时等待电压稳定
+               has_VBUS_input=1;//以便下次连续检测充电电压							                  
+			  if( VBUS_LIMIT_zero >= 3)
+				 { 
+				  Charge_vlow_set();
+				  error=ERROR_OVER_VLOW;
+				  mypr_puts("vlow",temp8);																;	 
+				  }	
+          	 }
+	     }//适配器电压过过低	
+	else {//无过压。
+	       mypr_sent("if (VBUS_5V20> VBUS_vol  )_else ");
+		   error&=~ERROR_OVER_VLOW;//电压回复正常清除过压保护	
+		   if ((BATT_Charge_state & BIT1) ==BIT1) { Open_Q4(); ENABLE_Charge();}	 
+		   Charge_vlow_clr();
+		// if (VBUS_vol> VBUS_LIMIT_HZ55 )  {if ((BATT_Charge_state & BIT1) ==BIT1) { Open_Q4(); ENABLE_Charge();}
+		//	                                Charge_vlow_clr();
+		//                                  }   //
+		//mypr_puts("vhi",temp8);	
+		} 	 
+//===========================充电过压响应============================================================================
+	 if(VBUS_vol > VBUS_LIMIT_MAX)
+		{ 
+		mypr_sent(" if(VBUS_vol > VBUS_LIMIT_MAX)");
+		  has_VBUS_input=1;//以便下次连续检测充电电压				 	
+		 //	mypr_puts("544",temp8);
+			 uptime(); error_dis();	 Delay_ms(100); 
+		    uptime(); error_dis();	 Delay_ms(100);  //  Delay_ms(300); 			 //初始化的时候延时等待电压稳定
+			 VBUS_vol = get_VBUS_ADC();
+			 if(VBUS_vol > VBUS_LIMIT_MAX)
+			 	{ uptime();  has_VBUS_input=1;//以便下次连续检测充电电压	
+				 VBUS_LIMIT_over+=1;						
+				 Close_Q4();
+				 /*****************设置检测到3次(6s)充电过压后进入低功耗*********************/
+				 if( VBUS_LIMIT_over >= 3)
+				 	{ 
+				 ////goto  HALH_in; //跳去关机.		
+					 DISABLE_Charge();	
+				     error=ERROR_OVER_VOL;
+					 Charge_vhi_set();		
+				    }
+				 /*****************************************************************************/
+				    Close_Q4();
+				    DISABLE_Charge();Delay_ms(100);Delay_ms(100);                          
+					//mypr_puts("705.....",temp8);
+				  	goto ERRORCKIN;//有错误。跳去报警							
+			     }	  
+	     }
+      else 
+      	{//无过压。
+      	mypr_sent(" if(VBUS_vol > VBUS_LIMIT_MAX)_else");
+      	 error&=~ERROR_OVER_VOL;//电压回复正常清除过压保护	 
+      	 if ((BATT_Charge_state & BIT0) ==BIT0) { Open_Q4(); ENABLE_Charge();}  //开启输入和输出。
+      	   Charge_vhi_clr();
+      	} 
+ VBUS_CK_OUT:;
+ //******************************************************************************************************************
+//-----------充电电量显示-----//ADAPTER_IN_flag充电标志-----------------------------------------------------------------
+//CHARGE_DISLEDIN:;		
+         if (charge_status_fincycle==0)
+        	{//gosleeptime=gosleeptime_set;//充电时睡眠时间更新。避免进入睡眠。
+	         //DIS_LED_TIM=DIS_LED_TIM_set;  //有负载重新更新10S关闭指示灯,无负载时。时间自动递减. 
+        	}		
+		     BQ24195_resetQ4(VBUS_vol); 
+		     gosleeptime=gosleeptime_set;//充电时睡眠时间更新。避免进入睡眠。
+	         DIS_LED_TIM=DIS_LED_TIM_set;  //有负载重新更新10S关闭指示灯,无负载时。时间自动递减.         	
+             uptime(); error_dis();error_dis();	        //  tempp=CHARGE_LEDCOUNT+bat_status;  	//显示递增级别   
+             tempp=bat_status;  	//显示递增级别  
+            //if (CK_Charge_nok) {Charge_ing_set();}  //未充满。。充电中。。。。。。
+         // mypr_puts("711...........",temp8);
+             if (bat_status<BAT_75)  {charge_status_fincycle=0;}
+             if (bat_status>=BAT_75) 
+			 	{
+			 	 if (bat_status==0) {;} 	
+			     else
+				{
+				   RESTCOUNT=20;//超过4V2	                           
+				   if (BAT_CK_TIMR>5) 
+					  {
+					    BAT_CK_TIMR=5;
+					   }//电池电压检测时间为5S.快速更新	            				  
+				   if (CHARGE_STATUS_PROCESS) 
+					   { 
+						  if (charge_status_fincycle<100) 
+						 {
+							 bat_status=BAT_75;
+							}
+						  if (charge_status_fincycle!=0) 
+						  {
+						   charge_status_fincycle--;
+						  }
+					 }//充电未完成.硬件判断
+                   else
+					  {
+					   charge_status_fincycle+=2;
+					  }//有可能充满计算次数.  													
+				   if (charge_status_fincycle>100) 
+					  {
+					    bat_status=BAT_100;
+                        if ((BATT_Charge_state==BIT0) || (BATT_Charge_state==BIT1))  
+					      {;}  
+					    else  
+					       {Charge_ok_set();}
+					  	if (charge_status_fincycle<130)   
+						   {I2C_Write(0x04,Charge_Vol_4V18);
+							 charge_status_fincycle=250;		
+							}   // { I2C_Write(0x04,0xB0);}     Charge_Vol_4V20
+					  	                             
+					 }	//充满时候显示100   
+                   else  
+					   {//未充满。尝试电池电压增加。加快饱和  
+                                            ////if !(CK_Charge_VinNG) {;} // {Charge_ing_set();}	
+                                              //SETF_charge_ing();                                                                      															   
+                            if (quitetime==18) {quitetime=19;I2C_Write(0x04,Charge_Vol_4V20);}  //{quitetime=11;I2C_Write(0x04,0xB0);} 
+							if (quitetime==20) {quitetime=0;I2C_Write(0x04,Charge_Vol_4V24);}	//{quitetime=0;I2C_Write(0x04,0xB8);}														  
+                       }
+					  
+				}								   
+			                          }				        
+	               //// if(BAT > bat_low_4V15)   {bat_status=BAT_100;}//提前显示充满。20180816	  
+	     if  ((BATT_Charge_state & (BIT0+BIT1+BIT4))==0) {;} else {charge_status_fincycle=0;} //有故障。不为充满
+	     if  ((BATT_Charge_state==BIT0) || (BATT_Charge_state==BIT1))  {;}  
+		 else {if ((BATT_Charge_state & BIT3)!=BIT3)  {Charge_ing_set();} }//不为满电的话。就在充电中		
+									  //充电时候没慢的情况下百分百灯不能常亮									  
+             tempp+=CHARGE_LEDCOUNT;  
+			 if (error!=0)  {goto ERRORCKIN;}   //有错误直接跳去错误显示.	
+			 LED25_OFF(); LED50_OFF(); LED75_OFF(); LED100_OFF();//先关掉
+			 
+        if (tempp==0)   { }
+	    else if (tempp==1)   { }
+	    else if (tempp==2)   {LED25_ON(); }
+	    else if (tempp==3)   {LED25_ON();LED50_ON();}
+	    else if (tempp==4)   {LED25_ON();LED50_ON();LED75_ON();}
+	    else if (tempp==5)   {LED25_ON();LED50_ON();LED75_ON();LED100_ON();}		
+             if (tempp>5)    {LED25_ON();LED50_ON();LED75_ON();LED100_ON(); CHARGE_LEDCOUNT=0;}	//清除递增加数。
+//--------------错误代码灯指示------------------------------------------------------------------------
+ERRORCKIN:;  uptime(); error_dis();	     
+//--------------------------------------------------------------------------------------
+//******************************************************************************************************************
+//******************************************************************************************************************
+//******************************************************************************************************************  
+//RS232_WIT_OUT:;
+//*******睡眠子程序*************************************************************************************************************************************************
+     if (gosleeptime==0) ///////////////////// ////// {goto  main_out;}  //1S
+        { system_status_machine=STATUS_SYSTEM_OFF;
+		  LPM4_EXIT_flag=0;
+     	}
+//********************************************************************************************************************************************************	
+    if (LPM4_EN_STRU==0)  {goto main_out;}
+	lm4_distim=0;
+lm4_disloop:;
+     if (lm4_distim &1 ) {LED25_ON();LED50_ON(); LED75_ON();LED100_ON();}
+	               else  {LED25_OFF(); LED50_OFF(); LED75_OFF();LED100_OFF();}
+    	CLRWDT();  uptime();	
+     if (lm4_distim<8)  {goto  lm4_disloop;}
+	  system_status_machine=STATUS_SYSTEM_OFF;
+	  LPM4_EXIT_flag=0;
+	  IE2 &=~ UCA0RXIE;  //关闭接收中断。
+      IE2 &=~ UCB0RXIE;  //关闭接收中断。
+//****************关机。。。****************************************************************************************************************************************	
+main_out:;
+    if  (system_status_machine==STATUS_SYSTEM_OFF)
+    	{ Reset_flag();//重置所有重要计数和标志    	 	
+	     ///mypr_sent("POWER_OFF!\n\n\n\n");
+HALH_in:;	     
+		 Delay_ms(100); 
+		 mypr_puts("OFF...system:=",system_status_machine);
+		 system_status_machine=STATUS_SYSTEM_OFF;
+		 adapter_status_machine=STATUS_ADAPTER_OFF;	  											 
+		 Close_Q4();  //关闭Q4
+		       CLOSE_3481;
+		 DISABLE_Charge();
+		 LED25_OFF();
+			   LED50_OFF();
+			   LED75_OFF();
+			   LED100_OFF();				   
+//**************睡眠前串口数据发送*****************************************************************************  
+          ////SET_AICAM_OFF();//关闭AICAM状态线。
+          SET_STUDY_OFF();//关闭功能。	
+          SETF_POW_OFF();//关闭电源状态  
+			temp8=0;RS_T100mS=0;TIMER1mS=0;
+		finis_sent232:;
+		  mypr_sent("finis_sent232:;\n");
+		   CLRWDT();  uptime();  	 // WDTCTL = WDTPW + WDTHOLD;	// Stop watchdog timer to prevent time out reset
+		    if (RS_T100mS<2)  {goto finis_sent232;} RS_T100mS=0; //限制大程序运行时间周期为20mS.
+		    //// mypr_sent("POW_OFF-3\n");
+		  RS232_state=1;//串口传输状态标志	
+          TX_Send[3]=my_state;//准备发送的数据状态 		
+		  P1IE  &= (~BIT1);  //禁止接收脚中断
+          P1IFG &= (~BIT1);  //清中断标志  
+          IE2 &=~ UCA0RXIE;  //关闭接收中断。   
+		   TX_Send[4]=TX_Send[0]+TX_Send[1]+TX_Send[2]+TX_Send[3];//检验和.	   
+           UCA0_SendData(TX_Send[0]);
+	       UCA0_SendData(TX_Send[1]);
+	       UCA0_SendData(TX_Send[2]);
+	       UCA0_SendData(TX_Send[3]);
+	       UCA0_SendData(TX_Send[4]);  
+			temp8++;if (temp8<3)  {goto finis_sent232;} //发送3次数据回总机 告知主机已关机。
+			my_state=my_batt_vol;
+            my_state_rd=0;
+            my_state_bak=0;
+            my_batt_vol=0;
+			line_my_state=0;
+			//// RS232_sent("POW_OFF!\n");
+//**************睡眠时禁止串口中断唤醒***********************************************************************************	        
+		        IE2 &=~ UCA0RXIE;  //关闭接收中断。
+		        IE2 &=~ UCB0RXIE;  //关闭接收中断。
+//**************************************************************************************************	
+		ADC10CTL0 &= (~REFON);
+		ADC10CTL0 &= (~ADC10ON);
+		////UCA0CTL1 |= UCSWRST;//串口不进行设定。不要进入。否侧无法使用
+		WDTCTL = WDTPW + WDTHOLD;	  // Stop watchdog timer to prevent time out reset		
+	 /*****P2端口中断初始化*****/
+ // 按键中断 P2.3
+  P2DIR &= (~BIT3);  //Input
+  P2REN &= (~BIT3);  //pull-up disable
+  P2IE  |= BIT3;   //Interrupt enable 
+  P2IES |= BIT3;   //H->L edge  
+  
+  P2DIR &= (~BIT1); //Input
+  P2REN &= (~BIT1);//Disable Pull-up
+
+  //充电电压检测中断 P2.4
+  P2DIR &= (~BIT4);  //Input
+  P2REN &= (~BIT4);  //pull-up disable
+  P2IE  |= BIT4;   //Interrupt enable 
+  P2IES |= BIT4;      //H->L edge  , 只检测适配器接入的中断  
+  P2IFG = 0;
+  AICAM_SETVH();//AICAM电源控制
+  P1DIR &= (~BIT3);//输出控制脚
+  _EINT();
+    LED25_OFF();
+		LED50_OFF();
+		LED75_OFF();
+		LED100_OFF();		
+		MAIN_POW_status=0;
+		BAT_LOAD_VOLDOW=0;
+		CPU_DITIM=0;
+		RF433CS_OFF();//433模块片选关闭
+
+	// CLRWDT(); 
+	//mypr_sent("LPM4_EXIT_flag=1; \n");
+	
+	 if (LPM4_EXIT_flag==0)   {LPM4_EXIT_flag=1; }//模拟进入低功耗模式 			 
+//************4级睡眠**********************************************************************************	 
+    if (LPM4_EN_STRU==0)  {goto LPM1_in_ssloop;}
+    LPM4;
+    LPM4_EN_STRU=0;
+	mypr_sent("LPM4;:;\n");
+	goto ni_sleep_out;
+//*******一级睡眠***************************************************************************************
+LPM1_in_ssloop:;
+        LPM1_EN_STRU=255;
+        UCA0_Init();receivedata[0]=0; receivedata[1]=0; receivedata[2]=0; receivedata[3]=0;RX_ok_f=0;	  
+		RF433CS_OFF();LPM1; //进入低功耗1模式 		
+DIT_LOOP:;       
+     CLRWDT(); 	WDTCTL = WDTPW + WDTHOLD;	  // Stop watchdog timer to prevent time out reset	
+    if (CPU_DITIM>(RF433_DITOFFTIM+RF433_DITONTIM))
+		               {RF433CS_OFF(); CPU_DITIM=0;//IE2 &=~ UCA0RXIE;  //关闭接收中断。  
+	                    LPM1;
+	                   } //唤醒时间到。进入LPM1睡眠  
+	if (RX_ok_f!=0) {goto ni_sleep_out; }//有串口数据流 .跳出假待机。 
+	 IE2 |= UCA0RXIE;  //使能接收中断。
+    if (LPM1_EN_STRU!=0)  {goto   DIT_LOOP;}
+//**********************************************************************************************	
+ni_sleep_out:;
+	    WDTCTL = WDT_MRST_32;  //32ms复位
+	     Sys_Init();//重新更新所有IO??	
+	     BATT_Charge_state=0;
+	     VBUS_LIMIT_over = 0;
+	     VBUS_LIMIT_zero=0;
+	     line_my_state=0;
+	     RX_turnstart_TIM=0;	
+		 	RS232_state=0;//串口传输状态标志	
+				RS232_OFFTIM=0;
+				BATT_Charge_state=0;
+				 my_TD_TESTTIM=5; SET_STUDY_ONF();//开机遥控对吗按键学习
+				 RX_turnstart_TIM=0;
+          LPM4_EN_STRU=0; 
+		 RF433CS_ON();//433模块片选工作
+	    if (RESTCOUNT>10) {RESTCOUNT=0; WDTCTL = WDTCNTCL;}  //系统复位。	   		
+ }
+
+
+/*
+  else   if(system_status_machine == STATUS_SYSTEM_ON)
+		{//开机状态。
+		 if (power_flag==0)
+		 	{power_flag=1;//未开过机。重新初始化BQ 	
+               BQ24195_Init(); Delay_ms(50);  //等待电压稳定。
+               Close_Q4();	Delay_ms(50); Open_Q4();
+			 adapter_status_machine=STATUS_ADAPTER_ON;					
+			 ENABLE_Charge(); Delay_ms(50);
+			 BQ24195_Init();//初始化24195---0926
+			 Delay_ms(50);uptime();  
+			 REG2_CHARGE=REG2_CHARGE_512MA;//REG2_CHARGE_512MA;//REG2_CHARGE_3000MA;//；、、；　EG2_CHARGE_512MA; 								   
+			 I2C_Write(0x02,REG2_CHARGE);
+			 load_status_machine=STATUS_LOAD_NORMAL;			   
+		 	}
+		}
+		*/
+//********************************************************************************************************************************************************	
+//********************************************************************************************************************************************************  
+//*********总程序打印。调试完要屏蔽***********************************************************************************************************************************************  
+//       printime=0;
+//	  if (printime==1)	 
+//	  	{printime=0;
+//		 TX_SENT("(adapter_status_machine :",adapter_status_machine );
+//		 TX_SENT("system_status_machine :",system_status_machine );
+//		 TX_SENT("button_press_flag:",button_press_flag);
+//		 TX_SENT("LPM4_EXIT_flag:",LPM4_EXIT_flag);
+//	   TX_SENT("load_status_machine:",load_status_machine);  
+//	   TX_SENT("gosleeptime:",gosleeptime);
+//       TX_SENT("VBUS_vol:",VBUS_vol*3); 
+//	  	}
+//********************************************************************************************************************************************************  
+//********************************************************************************************************************************************************  
+//********************************************************************************************************************************************************  
+//************电脑充放电EB测试通信。********************************************************************************************************************************************  
+
+    //    if (RS232_TIM>=3) //3//每隔3S发送一次
+    //    {RS232_TIM=0;
+	  //  TX_SENT("BAT:",BAT*35/64);       //发送电池电压数据 
+	   // TX_SENT("VBUS_vol:",VBUS_vol*3); //发送适配器电压数据 
+    //    TX_SENT("NTC:",NTC);             //发送NTC热敏数据        
+     //     TX_SENT("load_IAD:",load_IAD);  //负载电流	    
+     //    TX_SENT("CHARGE_OVER_4V2:",CHARGE_OVER_4V2); 
+	 ////    TX_SENT("charge_status_fincycle:",charge_status_fincycle); 
+		 
+	  // acc=I2C_Read(0x08); acc&=48;//BIT5,4为判断是否充满标志
+	//	TX_SENT("BQ_REG8:",acc);	// TX_SENT("VBUS:",VBUS*38	  
+		
+	//	 Open_Q4(); ENABLE_Charge();
+	//          BQ24195_Init();//初始化24195---0926
+    //          if(ADAPTER_IN_flag == 1){I2C_Write(0x02,REG2_CHARGE);}//
+ // REG2_CHARGE=0XF0;
+	//  I2C_Write(0x02,REG2_CHARGE);	  
+   //    }       
+//********************************************************************************************************************************************************  
+//********************************************************************************************************************************************************  
+//********************************************************************************************************************************************************  
+        goto     main_LOOP;		
+//*****main*******.while*****finsh;********************************************************************************************************		
+	}                 //...while(1)	
+} 
+//****************************************************************************		
+//****************************************************************************		
+//****************************************************************************	
+ //if (P25_STATUS_HI) {if (AICAM_V_F==0) {AICAM_V_F=1; SET_AICAM_ONF();}}//P25为高电平
+//				else  {if (AICAM_V_F==1) {AICAM_V_F=0; SET_AICAM_ONF();}}//P25为低电平
+//***************************************************************************************************************
+#include <H:\TESE-433-V0\source\interrupt.C>//中断程序
+
